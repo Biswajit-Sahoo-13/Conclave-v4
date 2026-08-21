@@ -1,13 +1,17 @@
 // Shared prompt builders — used by BOTH background.js (auto mode)
 // and popup.js (manual mode), so the two modes always debate identically.
 
+const MAX_ANSWER_CHARS = 8000; // per-model cap fed between tabs (context safety)
+
 const DEBATE_SYSTEM_PREAMBLE =
   "You are participating in a structured multi-model debate. " +
   "Another AI has produced the answer below. Critique it honestly: find " +
   "errors, hallucinations, missing requirements, and weak reasoning. Then " +
   "give your own improved answer. Be concrete. Answer in English.\n" +
-  "RULE: for every component or step you propose, add one line " +
-  "'Why needed: ...' so the reasoning can be cross-verified.\n\n";
+  "RULES: (1) for every component or step you propose, add one line " +
+  "'Why needed: ...' so the reasoning can be cross-verified. " +
+  "(2) End your answer with 'CONFIDENCE: NN%' plus one line justifying " +
+  "that number.\n\n";
 
 const ADVERSARIAL_PREAMBLE =
   "You are the ADVERSARY in a multi-model debate. Your job is to assume the " +
@@ -15,8 +19,9 @@ const ADVERSARIAL_PREAMBLE =
   "evidence, hunt for hallucinated facts, invented APIs, and hidden " +
   "assumptions. Only concede a point if it survives your attack. Then give " +
   "your own answer. Answer in English.\n" +
-  "RULE: for every component or step you propose, add one line " +
-  "'Why needed: ...'.\n\n";
+  "RULES: (1) for every component or step you propose, add one line " +
+  "'Why needed: ...'. (2) End with 'CONFIDENCE: NN%' plus one line of " +
+  "justification.\n\n";
 
 const JUDGE_AGREE_PROMPT =
   "Two AI models were asked the same question. Do they substantively agree " +
@@ -24,11 +29,20 @@ const JUDGE_AGREE_PROMPT =
   "Reply with ONLY the single word AGREE or DISAGREE on the first line, " +
   "then one short sentence why.\n\n";
 
+const ROUND_DIGEST_PROMPT =
+  "You are the referee of an ongoing multi-model debate. Compress the " +
+  "answers below into a compact digest (max 250 words) that the debaters " +
+  "will see next round instead of the full text. Structure it exactly as:\n" +
+  "ESTABLISHED: (points all models agree on)\n" +
+  "DISPUTED: (each disagreement: model A says X, model B says Y)\n" +
+  "UNRESOLVED: (open questions)\n" +
+  "Keep every technical claim intact — do not soften or merge disputes.\n\n";
+
 const JUDGE_FINAL_PROMPT =
   "You are the judge of a multi-model debate. Below are the final answers " +
-  "from each model (one may have been adversarial — weigh evidence, not " +
-  "politeness). Produce the definitive project framework. Use EXACTLY " +
-  "this structure in English:\n\n" +
+  "from each model (some may have been adversarial — weigh evidence and " +
+  "stated confidence, not politeness). Produce the definitive project " +
+  "framework. Use EXACTLY this structure in English:\n\n" +
   "## VERDICT\n(one-paragraph summary of the winning approach)\n\n" +
   "## AGREED POINTS\n- ...\n\n" +
   "## DISAGREEMENTS RESOLVED\n- point -> decision + reason\n\n" +
@@ -38,7 +52,28 @@ const JUDGE_FINAL_PROMPT =
   "## FLOWCHART\n(a Mermaid flowchart of the idea flow, in a ```mermaid " +
   "code block — keep it under 15 nodes)\n\n" +
   "## OPEN QUESTIONS\n- ...(unresolved items)\n\n" +
-  "Do not invent facts neither model supported.\n\n";
+  "Do not invent facts neither model supported. If a model's confidence " +
+  "was low or it failed to justify a claim, say so in DISAGREEMENTS " +
+  "RESOLVED.\n\n";
+
+function truncate(text, max = MAX_ANSWER_CHARS) {
+  if (!text || text.length <= max) return text || "";
+  return text.slice(0, max) + "\n\n[...truncated for context limits...]";
+}
+
+// Auto mode: judge digest replaces older rounds; latest answers stay full.
+// Manual mode: no digest, all captured answers are included (capped).
+function othersBlock(debaters, answers, excludeTabId, digest) {
+  let out = "";
+  if (digest) {
+    out += `--- REFEREE DIGEST of the debate so far ---\n${digest}\n\n`;
+  }
+  out += debaters
+    .filter(o => o.tabId !== excludeTabId && answers[o.tabId])
+    .map(o => `--- Answer from ${o.name}${o.adversarial ? " (adversary)" : ""} ---\n${truncate(answers[o.tabId])}`)
+    .join("\n\n");
+  return out;
+}
 
 function buildDebatePrompt(round, idea, othersText, adversarial) {
   if (round === 1) return idea;
@@ -46,15 +81,8 @@ function buildDebatePrompt(round, idea, othersText, adversarial) {
   return preamble + othersText;
 }
 
-function othersBlock(debaters, answers, excludeTabId) {
-  return debaters
-    .filter(o => o.tabId !== excludeTabId && answers[o.tabId])
-    .map(o => `--- Answer from ${o.name}${o.adversarial ? " (adversary)" : ""} ---\n${answers[o.tabId]}`)
-    .join("\n\n");
-}
-
 function judgeTranscript(debaters, answers) {
   return debaters
-    .map(d => `===== FINAL ANSWER — ${d.name}${d.adversarial ? " (adversary)" : ""} =====\n${answers[d.tabId]}`)
+    .map(d => `===== FINAL ANSWER — ${d.name}${d.adversarial ? " (adversary)" : ""} =====\n${truncate(answers[d.tabId])}`)
     .join("\n\n\n");
 }

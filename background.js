@@ -2,22 +2,26 @@
 //
 // Flow:
 //   1. Round 1: every debater tab receives the user's idea independently.
-//   2. Rounds 2..N: each debater receives the OTHER debaters' previous
-//      answers and is asked to critique and revise.
-//   3. Early stop (optional): the judge is asked "AGREE or DISAGREE" after
-//      each round; AGREE ends the debate.
-//   4. Final: the judge tab receives all final answers and must produce a
+//   2. Rounds 2..N: each debater receives the referee digest of earlier
+//      rounds + the other debaters' latest answers (capped for context
+//      safety) and is asked to critique and revise.
+//   3. Adversary mode: one debater per round is the attacker, and the
+//      role ROTATES each round so no model settles into permanent
+//      agreement.
+//   4. Early stop (optional): the judge answers AGREE/DISAGREE after each
+//      round; AGREE ends the debate.
+//   5. Final: the judge tab receives all final answers and must produce a
 //      structured framework verdict, which also lands in the judge's chat.
-//   5. The verdict is saved as framework.md via the Downloads API
-//      (semi-automation handoff for Antigravity).
+//   6. The verdict is saved via the Downloads API (semi-automation
+//      handoff for Antigravity).
 
 importScripts("prompts.js");
 
 // ---------------- tab messaging ----------------
 
-async function sendAndWait(tabId, prompt, timeoutMs) {
+function sendMessage(tabId, msg) {
   return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, { type: "SEND_AND_WAIT", prompt, timeoutMs }, (res) => {
+    chrome.tabs.sendMessage(tabId, msg, (res) => {
       if (chrome.runtime.lastError) {
         resolve({ ok: false, error: chrome.runtime.lastError.message });
       } else {
@@ -27,19 +31,25 @@ async function sendAndWait(tabId, prompt, timeoutMs) {
   });
 }
 
-async function ping(tabId) {
-  return new Promise((resolve) => {
-    chrome.tabs.sendMessage(tabId, { type: "PING" }, (res) => {
-      resolve(!chrome.runtime.lastError && res && res.ok ? res : null);
-    });
-  });
+async function sendAndWait(tabId, prompt, timeoutMs, label, report) {
+  const attempts = 2;
+  for (let i = 1; i <= attempts; i++) {
+    const res = await sendMessage(tabId, { type: "SEND_AND_WAIT", prompt, timeoutMs });
+    if (res.ok) return res;
+    if (i < attempts) {
+      report(`${label} failed (${res.error}) — retrying once in 5s...`);
+      await new Promise(r => setTimeout(r, 5000));
+    } else {
+      throw new Error(`${label}: ${res.error}`);
+    }
+  }
 }
 
 // ---------------- debate engine ----------------
 
 let running = false;
 
-async function runDebate(config) {
+async function runDebate(config, outFile) {
   if (running) throw new Error("A debate is already running.");
   running = true;
   const log = [];
@@ -53,44 +63,44 @@ async function runDebate(config) {
     const judge = config.judge;             // {tabId, name}
     const maxRounds = config.maxRounds || 3;
     const earlyStop = !!config.earlyStop;
-    const adversarial = !!config.adversarial;
-    if (adversarial && debaters.length >= 2) debaters[debaters.length - 1].adversarial = true;
+    const digest = !!config.digest;
 
-    // answers[tabId] = latest answer text from that tab
-    const answers = {};
+    const answers = {};   // tabId -> latest answer text
+    let digestText = null;
+    let stoppedEarly = 0;
 
     for (let round = 1; round <= maxRounds; round++) {
       report(`--- Round ${round}/${maxRounds} ---`);
-      for (const d of debaters) {
-        let prompt;
-        if (round === 1) {
-          prompt = config.idea;
-        } else {
-          prompt = buildDebatePrompt(round, config.idea,
-            othersBlock(debaters, answers, d.tabId), d.adversarial);
-        }
-        report(`Sending to ${d.name}...`);
-        const res = await sendAndWait(d.tabId, prompt, config.timeoutMs);
-        if (!res.ok) throw new Error(`${d.name}: ${res.error}`);
+
+      // adversary role rotates: debater index (round-1) mod count
+      const adversaryIdx = adversarialIndex(config, round);
+
+      for (let i = 0; i < debaters.length; i++) {
+        const d = debaters[i];
+        d.adversarial = i === adversaryIdx;
+        const prompt = round === 1
+          ? config.idea
+          : buildDebatePrompt(round, config.idea,
+              othersBlock(debaters, answers, d.tabId, digestText), d.adversarial);
+        report(`Sending to ${d.name}${d.adversarial ? " (adversary)" : ""}...`);
+        const res = await sendAndWait(d.tabId, prompt, config.timeoutMs, d.name, report);
         answers[d.tabId] = res.text;
         report(`${d.name} answered (${res.text.length} chars).`);
       }
 
-      if (earlyStop && round < maxRounds && judge) {
-        report(`Asking ${judge.name} if models agree...`);
-        const agreeRes = await sendAndWait(
-          judge.tabId,
-          JUDGE_AGREE_PROMPT +
-            debaters.map(d => `--- ${d.name} ---\n${answers[d.tabId]}`).join("\n\n"),
-          config.timeoutMs
-        );
-        if (agreeRes.ok && /^AGREE\b/i.test(agreeRes.text.trim())) {
+      if (round < maxRounds) {
+        if (earlyStop && await modelsAgree(config, judge, debaters, answers, report)) {
+          stoppedEarly = round;
           report(`${judge.name} says AGREE — stopping early after round ${round}.`);
           break;
         }
-        report(agreeRes.ok
-          ? `${judge.name} says DISAGREE — continuing.`
-          : "Agreement check failed, continuing.");
+        if (digest) {
+          report(`Compressing round ${round} into a referee digest...`);
+          const dig = await sendAndWait(judge.tabId,
+            ROUND_DIGEST_PROMPT + judgeTranscript(debaters, answers),
+            config.timeoutMs, "Digest", report);
+          digestText = dig.text;
+        }
       }
     }
 
@@ -99,26 +109,39 @@ async function runDebate(config) {
     report(`Requesting final framework from ${judge.name}...`);
     const verdict = await sendAndWait(judge.tabId,
       JUDGE_FINAL_PROMPT + userIdeaBlock + judgeTranscript(debaters, answers),
-      config.timeoutMs);
-    if (!verdict.ok) throw new Error(`Judge ${judge.name}: ${verdict.error}`);
+      config.timeoutMs, `Judge ${judge.name}`, report);
 
-    const md = buildFrameworkMd(config, log, verdict.text);
-    await saveFile("framework.md", md);
-    report("Done. framework.md saved to your Downloads folder (move it into your project for Antigravity).");
+    const md = buildOutputMd(config, log, verdict.text, stoppedEarly);
+    await saveFile(outFile || "framework.md", md);
+    report(`Done. ${outFile || "framework.md"} saved to Downloads/ai-council/ (move it into your project for Antigravity).`);
     return { ok: true, log };
   } finally {
     running = false;
   }
 }
 
-function buildFrameworkMd(config, log, verdictText) {
+function adversarialIndex(config, round) {
+  if (!config.adversarial || config.debaters.length < 2) return -1;
+  return (round - 1) % config.debaters.length; // rotates each round
+}
+
+async function modelsAgree(config, judge, debaters, answers, report) {
+  report(`Asking ${judge.name} if models agree...`);
+  const res = await sendAndWait(judge.tabId,
+    JUDGE_AGREE_PROMPT + judgeTranscript(debaters, answers),
+    config.timeoutMs, "Agreement check", report);
+  return res.ok && /^AGREE\b/i.test(res.text.trim());
+}
+
+function buildOutputMd(config, log, verdictText, stoppedEarly) {
   const stamp = new Date().toISOString().replace(":", "-");
   return (
     `# Project Framework — generated by AI Council\n\n` +
     `- Date: ${new Date().toISOString()}\n` +
     `- Debaters: ${config.debaters.map(d => d.name).join(", ")}\n` +
     `- Judge: ${config.judge.name}\n` +
-    `- Rounds: ${config.maxRounds}\n\n` +
+    `- Rounds: ${config.maxRounds}${stoppedEarly ? ` (stopped early after ${stoppedEarly})` : ""}\n` +
+    `- Adversary mode: ${config.adversarial ? "on (rotating)" : "off"}\n\n` +
     `## Original Idea\n\n${config.idea}\n\n` +
     `## Judge Verdict\n\n${verdictText}\n\n` +
     `---\n\n<!-- session: ${stamp} -->\n`
@@ -135,17 +158,17 @@ function saveFile(filename, text) {
   });
 }
 
-// Re-run the debate on an Antigravity question: takes question text,
-// debates it the same way, saves question.txt with the judge's answer.
+// Re-run the debate on an Antigravity question: takes question/error text,
+// debates it the same way, saves resolution.md with the judge's answer.
 async function runQuestion(config) {
-  const result = await runDebate({
+  return runDebate({
     ...config,
     idea:
       "A coding agent (Antigravity) hit this problem while building the project:\n\n" +
       config.idea +
-      "\n\nDiagnose the root cause and propose the fix."
-  });
-  return result;
+      "\n\nDiagnose the root cause and propose the fix. Prefer the fix with " +
+    "the strongest evidence and fewest assumptions."
+  }, "resolution.md");
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {

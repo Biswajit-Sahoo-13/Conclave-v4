@@ -59,10 +59,7 @@ function getConfig(mode) {
   if (debaters.length === 1 && debaters[0].tabId === judge.tabId) {
     return { error: "Judge cannot be the only debater — select another debater or another judge." };
   }
-  if (document.getElementById("adversarial").checked && debaters.length >= 2) {
-    debaters[debaters.length - 1].adversarial = true;
-  }
-
+  // adversary marking is computed per round (rotating) later — only the flag here
   return {
     idea,
     debaters,
@@ -70,8 +67,30 @@ function getConfig(mode) {
     maxRounds: parseInt(document.getElementById("rounds").value, 10),
     earlyStop: document.getElementById("earlyStop").checked,
     adversarial: document.getElementById("adversarial").checked,
+    digest: document.getElementById("digest").checked,
     timeoutMs: 300000
   };
+}
+
+// Remember settings between sessions
+function saveSettings() {
+  const cfg = {
+    rounds: document.getElementById("rounds").value,
+    earlyStop: document.getElementById("earlyStop").checked,
+    adversarial: document.getElementById("adversarial").checked,
+    digest: document.getElementById("digest").checked
+  };
+  chrome.storage.sync.set(cfg).catch(() => {});
+}
+
+async function loadSettings() {
+  try {
+    const s = await chrome.storage.sync.get(["rounds", "earlyStop", "adversarial", "digest"]);
+    if (s.rounds) document.getElementById("rounds").value = s.rounds;
+    document.getElementById("earlyStop").checked = !!s.earlyStop;
+    document.getElementById("adversarial").checked = !!s.adversarial;
+    if (typeof s.digest === "boolean") document.getElementById("digest").checked = s.digest;
+  } catch (_) { /* storage unavailable — defaults are fine */ }
 }
 
 function showStatus(text, isErr) {
@@ -83,6 +102,7 @@ function showStatus(text, isErr) {
 async function start(type) {
   const config = getConfig();
   if (config.error) return showStatus(config.error, true);
+  saveSettings();
   showStatus("Starting... keep the chat tabs open and visible.");
 
   // Content scripts registered statically only load on tabs opened after
@@ -112,6 +132,7 @@ chrome.runtime.onMessage.addListener((msg) => {
 document.getElementById("debate").addEventListener("click", () => start("START_DEBATE"));
 document.getElementById("question").addEventListener("click", () => start("START_QUESTION"));
 scanTabs();
+loadSettings();
 
 // ---------------- manual mode ----------------
 // Same debate logic as background.js, but you are the "hands": copy each
@@ -144,6 +165,9 @@ function showManualStep() {
       `The user's original idea was:\n${manual.config.idea}\n\n` +
       judgeTranscript(manual.config.debaters, manual.answers);
   } else if (s.round > 1) {
+    // adversary rotates each round, same as auto mode
+    const idx = manual.config.debaters.findIndex(d => d.tabId === s.tab.tabId);
+    manual.config.debaters.forEach((d, i) => { d.adversarial = manual.config.adversarial && i === (s.round - 1) % manual.config.debaters.length; });
     // built here, not upfront: needs the answers captured so far
     s.prompt = buildDebatePrompt(s.round, manual.config.idea,
       othersBlock(manual.config.debaters, manual.answers, s.tab.tabId), s.tab.adversarial);
@@ -199,6 +223,7 @@ function finishManual() {
 document.getElementById("manual").addEventListener("click", () => {
   const config = getConfig();
   if (config.error) return showStatus(config.error, true);
+  config.debaters.forEach(d => { d.adversarial = false; });
   manual = { config, steps: null, idx: 0, answers: {} };
   manual.steps = buildManualSteps(config);
   manualBox.style.display = "block";

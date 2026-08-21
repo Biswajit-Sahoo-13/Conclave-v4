@@ -1,9 +1,27 @@
-# AI Council — Multi-Model Debate Extension
+# AI Council — Multi-Model Debate Extension (v0.2)
 
 Turns your open AI chat tabs into a debate chamber: each model gets your idea,
 critiques the others' answers for N rounds, and a judge model produces the
 final structured framework. Works with your normal logged-in free accounts
 (no API keys).
+
+## Engine features (v0.2)
+
+- **Rotating adversary** — when Adversary mode is on, a different debater is
+  the attacker each round, so no model settles into permanent agreement.
+- **Referee digest** — between rounds the judge compresses the debate into
+  ESTABLISHED / DISPUTED / UNRESOLVED, and debaters see that digest instead
+  of the full history (context-window safety on long debates). Latest
+  answers are always included in full (capped at 8000 chars each).
+- **Confidence scores** — every debater must end with `CONFIDENCE: NN%` plus
+  a justification; the judge weighs these in the verdict.
+- **Why-needed annotations + Mermaid flowchart** — every proposed component
+  carries a `Why needed:` line; the verdict includes a flowchart.
+- **Automatic retry** — a failed send/extract retries once before aborting.
+- **Early stop** — optional judge AGREE/DISAGREE check after each round.
+- **Settings persistence** — your options are remembered between sessions.
+- **Resolve Question** now saves `resolution.md` separately from
+  `framework.md`.
 
 ## Install (Chrome, semi-manual for v1)
 
