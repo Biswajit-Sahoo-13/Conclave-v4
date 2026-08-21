@@ -58,6 +58,36 @@
 
   <div id="status"></div>
 
+  <h2 style="margin-top:12px">Daemon (v2 — Project Brain + MCP)</h2>
+  <div class="row">
+    <span id="daemonDot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#999"></span>
+    <span id="daemonState">checking…</span>
+    <label style="margin-left:auto"><input type="checkbox" id="armDaemon"> Arm daemon mode</label>
+  </div>
+  <div class="row">
+    <input id="projName" placeholder="Project name" style="flex:1">
+    <input id="projRoot" placeholder="Project folder (for framework.md)" style="flex:1">
+    <button id="saveProject">Save</button>
+  </div>
+  <div class="row">
+    <label>Routing:
+      <select id="daemonRouting">
+        <option value="conservative">Conservative</option>
+        <option value="balanced" selected>Balanced</option>
+        <option value="aggressive">Aggressive</option>
+      </select>
+    </label>
+    <label>Judges:
+      <select id="daemonJudges">
+        <option value="single">Single</option>
+        <option value="synthesis" selected>Synthesis (2 + chief)</option>
+        <option value="panel">Panel vote</option>
+        <option value="weighted">Weighted panel</option>
+      </select>
+    </label>
+  </div>
+  <div id="sessions"></div>
+
   <script src="prompts.js"></script>
   <script src="popup.js"></script>
 </body>

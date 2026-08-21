@@ -248,3 +248,107 @@ document.getElementById("capture").addEventListener("click", async () => {
   manual.idx++;
   showManualStep();
 });
+
+// ---------------- daemon (v2) panel ----------------
+// The daemon owns SQLite, adaptive routing, judge ensembles and MCP.
+// Arming publishes the tab roster so the daemon can drive these tabs.
+
+const DAEMON = "http://127.0.0.1:8765";
+
+async function daemonFetch(path, opts) {
+  return fetch(DAEMON + path, opts);
+}
+
+function buildRoster() {
+  // roles come from the same checkboxes used for local debates
+  const roster = [];
+  chatTabs.forEach((t, i) => {
+    const isDebater = tabsEl.querySelector(`[data-debate="${i}"]`).checked;
+    const isJudge = tabsEl.querySelector(`[data-judge="${i}"]`)?.checked;
+    if (!isDebater && !isJudge) return;
+    const host = Object.entries(KNOWN_HOSTS).find(([h, name]) => name === t.name)?.[0];
+    if (!host) return;
+    roster.push({ tabId: t.tabId, site: host, name: t.name, role: isJudge ? "judge" : "debater" });
+  });
+  return roster;
+}
+
+document.getElementById("armDaemon").addEventListener("change", async (e) => {
+  const roster = buildRoster();
+  if (e.target.checked && !roster.length) {
+    showStatus("Select at least one debater/judge tab above before arming.", true);
+    e.target.checked = false;
+    return;
+  }
+  chrome.runtime.sendMessage(
+    { type: "SET_DAEMON", armed: e.target.checked, roster },
+    () => { if (e.target.checked) { savePrefs(); loadSessions(); } }
+  );
+});
+
+async function savePrefs() {
+  try {
+    await daemonFetch("/api/prefs", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        routingMode: document.getElementById("daemonRouting").value,
+        judgeMode: document.getElementById("daemonJudges").value
+      })
+    });
+  } catch (_) { /* daemon offline */ }
+}
+
+document.getElementById("saveProject").addEventListener("click", async () => {
+  const name = document.getElementById("projName").value.trim() || "default";
+  const rootPath = document.getElementById("projRoot").value.trim() || null;
+  try {
+    await daemonFetch("/api/project", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, rootPath })
+    });
+    showStatus(`Project "${name}" saved to the Brain.`);
+  } catch (_) { showStatus("Daemon offline — start it with daemon/start-council.bat", true); }
+});
+
+["daemonRouting", "daemonJudges"].forEach(id =>
+  document.getElementById(id).addEventListener("change", savePrefs));
+
+async function checkDaemon() {
+  const dot = document.getElementById("daemonDot");
+  const state = document.getElementById("daemonState");
+  try {
+    const r = await (await daemonFetch("/status")).json();
+    dot.style.background = "#2c2";
+    state.textContent = `online — project "${r.project}", ${r.roster.filter(x => x.role === "debater").length} debaters, ${r.roster.filter(x => x.role === "judge").length} judges, ${r.rated_verdicts} rated verdicts`;
+    return true;
+  } catch (_) {
+    dot.style.background = "#c33";
+    state.textContent = "offline — daemon mode unavailable, local mode still works";
+    return false;
+  }
+}
+
+async function loadSessions() {
+  const el = document.getElementById("sessions");
+  try {
+    const r = await (await daemonFetch("/api/sessions?limit=5")).json();
+    if (!r.sessions.length) { el.innerHTML = "<div class='role'>No sessions yet.</div>"; return; }
+    el.innerHTML = r.sessions.map(s =>
+      `<div class="tab-row">
+         <span style="flex:1">#${s.id} ${esc(s.kind)} — ${esc(s.status)} (${esc(s.routing_mode)}, ${esc(s.judge_mode)})</span>
+         ${s.status === "done" ? `<button data-fb="${s.id}" data-ok="1">✓</button><button data-fb="${s.id}" data-ok="0">✗</button>` : ""}
+       </div>`).join("");
+    el.querySelectorAll("[data-fb]").forEach(b => b.addEventListener("click", async () => {
+      await daemonFetch("/api/feedback", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: parseInt(b.dataset.fb), accepted: b.dataset.ok === "1" })
+      });
+      loadSessions();
+    }));
+  } catch (_) {
+    el.innerHTML = "<div class='role'>Daemon offline.</div>";
+  }
+}
+
+checkDaemon();
+loadSessions();

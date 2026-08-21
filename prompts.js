@@ -56,6 +56,49 @@ const JUDGE_FINAL_PROMPT =
   "was low or it failed to justify a claim, say so in DISAGREEMENTS " +
   "RESOLVED.\n\n";
 
+const MODEL_AGREEMENT_PROMPT =
+  "You are the referee of a multi-model debate. For EACH model's answer " +
+  "below, decide whether its core approach substantively agrees with the " +
+  "majority. Reply with EXACTLY one line per model, no other text:\n" +
+  "modelname: AGREE\nor\nmodelname: DISAGREE\n" +
+  "(Use the exact model names given in the answer headers.)\n\n";
+
+const META_PROMPT =
+  "You are the CHIEF judge. Two judge verdicts on the same debate follow. " +
+  "Merge them into ONE final framework using the same structure as a judge " +
+  "verdict (VERDICT / AGREED POINTS / DISAGREEMENTS RESOLVED / REJECTED " +
+  "IDEAS / FRAMEWORK / FLOWCHART / OPEN QUESTIONS). Add one extra section " +
+  "at the end, '## JUDGE DISAGREEMENTS RESOLVED', listing every point where " +
+  "the two judges differed and which reading you kept and why. Do not " +
+  "invent facts neither verdict supported. Answer in English.\n\n";
+
+const PANEL_MERGE_PROMPT =
+  "You are the CHIEF judge of a panel. Several judge verdicts on the same " +
+  "debate follow. Merge them into ONE final framework using the standard " +
+  "verdict structure (VERDICT / AGREED POINTS / DISAGREEMENTS RESOLVED / " +
+  "REJECTED IDEAS / FRAMEWORK / FLOWCHART / OPEN QUESTIONS). In " +
+  "DISAGREEMENTS RESOLVED, append the vote count to each entry, e.g. " +
+  "'- point -> decision + reason (votes: 2 for, 1 against)'. Do not invent " +
+  "facts none of the verdicts supported. Answer in English.\n\n";
+
+const WEIGHTED_MERGE_PROMPT =
+  "You are the CHIEF judge of a panel. Judge verdicts follow, each tagged " +
+  "with that judge's measured accuracy weight (higher = historically more " +
+  "reliable). Merge them into ONE final framework using the standard " +
+  "verdict structure. On points where verdicts conflict, favor the reading " +
+  "supported by the higher-weight judges, and say so in DISAGREEMENTS " +
+  "RESOLVED. Do not invent facts none of the verdicts supported. " +
+  "Answer in English.\n\n";
+
+const ATTACK_ANGLE_PROMPT =
+  "The debate so far has not reached confidence. Previous rounds attacked " +
+  "the obvious weaknesses. Your job now: find a COMPLETELY DIFFERENT angle " +
+  "of attack — alternative architectures, hidden assumptions nobody " +
+  "questioned, simpler solutions everyone overlooked, or scope that should " +
+  "be cut. State your case, then give your own answer with the usual rules " +
+  "('Why needed:' per component, end with 'CONFIDENCE: NN%'). " +
+  "Answer in English.\n\n";
+
 function truncate(text, max = MAX_ANSWER_CHARS) {
   if (!text || text.length <= max) return text || "";
   return text.slice(0, max) + "\n\n[...truncated for context limits...]";
@@ -85,4 +128,15 @@ function judgeTranscript(debaters, answers) {
   return debaters
     .map(d => `===== FINAL ANSWER — ${d.name}${d.adversarial ? " (adversary)" : ""} =====\n${truncate(answers[d.tabId])}`)
     .join("\n\n\n");
+}
+
+// Daemon (CommonJS) requires this same file the extension loads as a script.
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = {
+    DEBATE_SYSTEM_PREAMBLE, ADVERSARIAL_PREAMBLE, JUDGE_AGREE_PROMPT,
+    ROUND_DIGEST_PROMPT, MODEL_AGREEMENT_PROMPT, JUDGE_FINAL_PROMPT,
+    META_PROMPT, PANEL_MERGE_PROMPT, WEIGHTED_MERGE_PROMPT,
+    ATTACK_ANGLE_PROMPT,
+    truncate, othersBlock, buildDebatePrompt, judgeTranscript
+  };
 }

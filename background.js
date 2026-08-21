@@ -185,3 +185,87 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 });
+
+// ============================================================
+// Daemon agent: when armed, polls the local council daemon for
+// tab commands (send prompt -> capture answer) and posts results
+// back. The v0.2 local engine above is untouched and still works
+// when the daemon is off.
+// ============================================================
+
+const DAEMON = "http://127.0.0.1:8765";
+const AGENT_ID = "ext-" + Math.random().toString(36).slice(2, 10);
+let agentRunning = false;
+
+async function getStored(key) {
+  return new Promise((resolve) => chrome.storage.local.get(key, (o) => resolve(o[key])));
+}
+
+async function postJson(path, body) {
+  const res = await fetch(DAEMON + path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+async function executeCommand(cmd) {
+  // roster entries carry the tabId to use for each site
+  const roster = (await getStored("daemonRoster")) || [];
+  const entry = roster.find(r => r.site === cmd.site);
+  if (!entry) {
+    return postJson("/agent/result", {
+      callId: cmd.callId, ok: false, error: `no roster tab for site ${cmd.site}`
+    });
+  }
+  // make sure the content script is present (tab may predate install)
+  await chrome.scripting.executeScript({
+    target: { tabId: entry.tabId }, files: ["sites.js", "content.js"]
+  }).catch(() => {});
+  chrome.tabs.sendMessage(
+    entry.tabId,
+    { type: "SEND_AND_WAIT", prompt: cmd.prompt, timeoutMs: 280000 },
+    (res) => {
+      const out = (!res || !res.ok)
+        ? { callId: cmd.callId, ok: false, error: (res && res.error) || "tab command failed" }
+        : { callId: cmd.callId, ok: true, text: res.text };
+      postJson("/agent/result", out).catch(() => {});
+    }
+  );
+}
+
+async function agentTick() {
+  if (!agentRunning) return;
+  try {
+    const roster = (await getStored("daemonRoster")) || [];
+    const res = await postJson("/agent/poll", { agentId: AGENT_ID, roster });
+    if (res && res.command) await executeCommand(res.command);
+  } catch (_) { /* daemon offline — popup shows the banner */ }
+  if (agentRunning) setTimeout(agentTick, 500);
+}
+
+async function armAgent(armed) {
+  agentRunning = armed;
+  if (armed) agentTick(); // fetch activity keeps the service worker alive
+}
+
+// service worker can restart at any time — re-arm automatically
+(async () => {
+  const cfg = await getStored("daemonConfig");
+  if (cfg && cfg.armed) armAgent(true);
+})();
+
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg.type === "SET_DAEMON") {
+    chrome.storage.local.set({
+      daemonConfig: { armed: msg.armed },
+      daemonRoster: msg.roster || []
+    }, () => {
+      armAgent(msg.armed);
+      sendResponse({ ok: true });
+    });
+    return true;
+  }
+});

@@ -1,73 +1,77 @@
-# AI Council — Multi-Model Debate Extension (v0.2)
+# AI Council v1 "Complex" — Extension + Daemon
 
-Turns your open AI chat tabs into a debate chamber: each model gets your idea,
-critiques the others' answers for N rounds, and a judge model produces the
-final structured framework. Works with your normal logged-in free accounts
-(no API keys).
+Two parts, two branches:
 
-## Engine features (v0.2)
+- **`main`** — v0.2: standalone Chrome extension (local engine, manual mode).
+  Works with zero setup.
+- **`v1-complex-high-features`** (this branch) — v1.0: adds the local
+  **council daemon** (Node.js, zero npm dependencies) with a real SQLite
+  **Project Brain**, **adaptive routing**, **multi-judge ensembles**, and an
+  **MCP server** that lets Antigravity run debates automatically.
 
-- **Rotating adversary** — when Adversary mode is on, a different debater is
-  the attacker each round, so no model settles into permanent agreement.
-- **Referee digest** — between rounds the judge compresses the debate into
-  ESTABLISHED / DISPUTED / UNRESOLVED, and debaters see that digest instead
-  of the full history (context-window safety on long debates). Latest
-  answers are always included in full (capped at 8000 chars each).
-- **Confidence scores** — every debater must end with `CONFIDENCE: NN%` plus
-  a justification; the judge weighs these in the verdict.
-- **Why-needed annotations + Mermaid flowchart** — every proposed component
-  carries a `Why needed:` line; the verdict includes a flowchart.
-- **Automatic retry** — a failed send/extract retries once before aborting.
-- **Early stop** — optional judge AGREE/DISAGREE check after each round.
-- **Settings persistence** — your options are remembered between sessions.
-- **Resolve Question** now saves `resolution.md` separately from
-  `framework.md`.
+## Quick start (daemon)
 
-## Install (Chrome, semi-manual for v1)
+1. Start the daemon: double-click `daemon/start-council.bat`
+   (or `node daemon/server.js`). It listens on `http://127.0.0.1:8765`
+   and stores the Brain in `%USERPROFILE%\.ai-council\council.db`.
+2. Reload the extension in `chrome://extensions` (v1.0.0 from this branch).
+3. Open your chat tabs, open the popup, pick debaters + judge as usual.
+4. In the **Daemon** panel: set a project name and (optionally) a project
+   folder — verdicts get written there as `framework.md` / `resolution.md`.
+   Choose routing mode and judge mode, then check **Arm daemon mode**.
+5. Now debates can be triggered two ways:
+   - From Antigravity via MCP (see below) — fully automatic loop.
+   - `curl -X POST http://127.0.0.1:8765/api/debate -d '{"question":"..."}'`
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode** (top right)
-3. Click **Load unpacked** and select this folder
-4. Open the chat sites you want (e.g. chat.qwen.ai and chat.z.ai) and start
-   a **new chat** in each
+## MCP tools (for Antigravity)
 
-## Use
+HTTP endpoint: `http://127.0.0.1:8765/mcp` (streamable HTTP, JSON-RPC 2.0).
+stdio clients: use `daemon/stdio-bridge.js` as the MCP command.
 
-1. Click the AI Council extension icon
-2. Paste your idea / prompt
-3. Check the **Debaters** columns and pick one **Judge**
-4. Rounds default to 3 (hard cap). Optional: judge early-stop on agreement,
-   and **Adversary mode** (last debater must attack every claim instead of
-   agreeing — breaks shared-wrong-belief hallucinations)
-5. Click a mode:
-   - **Auto Debate** — fully automatic; needs working site selectors
-   - **Manual Debate** — you are the hands: copy each generated prompt into
-     the tab, select the model's answer, click **Capture**. Immune to UI
-     redesigns; use this whenever Auto breaks on a site.
-   - **Resolve Question** — same as Auto, for Antigravity bugs/errors
+| tool | what it does |
+|---|---|
+| `ask_council(question, context?, kind?)` | runs the full debate in your Chrome tabs, returns the verdict, stores everything |
+| `get_project_state()` | decisions (with reasons/rejected alternatives), open questions, recent verdicts |
+| `record_issue(title, error, context?, debate?)` | logs an Antigravity error; `debate: true` resolves it via a council debate |
+| `submit_feedback(session_id, accepted)` | trains judge reliability weights (weighted-panel mode) |
 
-The final verdict appears in the judge's chat tab and is saved to
-`Downloads/ai-council/framework.md` (includes a Mermaid flowchart of the
-idea flow and a "Why needed" line per component).
+Example Antigravity config (streamable HTTP):
+```json
+{ "mcpServers": { "ai-council": { "url": "http://127.0.0.1:8765/mcp" } } }
+```
+Or stdio:
+```json
+{ "mcpServers": { "ai-council": {
+    "command": "node",
+    "args": ["C:/path/to/ai-debate-extension/daemon/stdio-bridge.js"] } } }
+```
 
-## Antigravity handoff (semi-automated v1)
+## Engine (daemon)
 
-- Point Antigravity at `Downloads/ai-council/` or copy `framework.md` into
-  your project folder and tell Antigravity to follow it.
-- When Antigravity reports an error, paste it into the popup and hit
-  **Resolve Question**; give the resulting answer back to Antigravity.
+- **Routing modes** — `conservative` (full rounds, rotating adversary only),
+  `balanced` (default: unanimous + avg confidence ≥ 75% skips remaining
+  rounds; only disagreeing/low-confidence models are re-asked; adversary
+  targets the outlier), `aggressive` (balanced + up to 2 extra rounds with
+  a fresh attack angle while avg confidence < 60%).
+- **Judge modes** — `single`, `synthesis` (2 judges + chief meta-merge that
+  must list judge-vs-judge disagreements), `panel` (all judges vote,
+  majority per point), `weighted` (votes weighted by your accept/reject
+  feedback; "untrained" note until 10 rated verdicts).
+- Every message, decision, open question and issue is stored in SQLite;
+  verdict sections are parsed into durable `decisions` and `open_questions`.
 
-## When a site breaks
+## Tests
 
-Chat sites redesign often. If extraction or injection fails on one site,
-edit its entry in `sites.js` (selector candidate lists) — that is the only
-file that should ever need touching. DevTools on the chat tab → inspect the
-assistant message and the input box to find current selectors.
+```
+node --test daemon/test/engine.test.js daemon/test/brain.test.js daemon/test/e2e.test.js
+```
+31 tests: parsing edge cases, routing behavior, judge ensembles,
+Brain repositories, and a full-loop e2e with a fake browser (no Chrome).
 
-## Known limitations (honest list)
+## Fallback behavior
 
-- Selectors in `sites.js` are best-effort; verify on first run per site.
-- Very long responses (10k+ chars) fed between tabs consume a lot of context;
-  v2 should summarize between rounds.
-- All tabs must stay open and logged in; reCAPTCHA/anti-bot checks on some
-  sites may occasionally block automated sends.
+- Daemon off → popup shows "offline", local v0.2 modes still work.
+- Chrome/extension not armed → MCP `ask_council` returns a clear error.
+- One judge fails → synthesis degrades to single (noted in the verdict).
+
+Design spec: `docs/superpowers/specs/2026-08-21-complex-version-design.md`

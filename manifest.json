@@ -1,15 +1,16 @@
 {
   "manifest_version": 3,
   "name": "AI Council — Multi-Model Debate",
-  "version": "0.2.0",
-  "description": "Send an idea to your open AI chat tabs, make them critique each other, and let a judge model produce the final framework.",
+  "version": "1.0.0",
+  "description": "Send an idea to your open AI chat tabs, make them critique each other, and let a judge model produce the final framework. Daemon mode adds the Project Brain + MCP.",
   "permissions": ["tabs", "scripting", "downloads", "storage"],
   "host_permissions": [
     "https://chat.qwen.ai/*",
     "https://chat.z.ai/*",
     "https://gemini.google.com/*",
     "https://chatgpt.com/*",
-    "https://claude.ai/*"
+    "https://claude.ai/*",
+    "http://127.0.0.1:8765/*"
   ],
   "action": {
     "default_popup": "popup.html",
