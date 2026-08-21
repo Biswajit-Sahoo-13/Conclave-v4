@@ -112,9 +112,9 @@ async function runDebate(config, outFile) {
       config.timeoutMs, `Judge ${judge.name}`, report);
 
     const md = buildOutputMd(config, log, verdict.text, stoppedEarly);
-    await saveFile(outFile || "framework.md", md);
+    const downloadId = await saveFile(outFile || "framework.md", md);
     report(`Done. ${outFile || "framework.md"} saved to Downloads/ai-council/ (move it into your project for Antigravity).`);
-    return { ok: true, log };
+    return { ok: true, log, verdict: verdict.text, downloadId };
   } finally {
     running = false;
   }

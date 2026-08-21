@@ -3,90 +3,195 @@
 <head>
   <meta charset="utf-8">
   <style>
-    body { width: 380px; font: 13px/1.45 system-ui, sans-serif; padding: 10px; }
+    :root {
+      --ink: #1e293b; --muted: #64748b; --line: #e2e8f0;
+      --accent: #4f46e5; --accent-ink: #fff; --ok: #16a34a;
+      --err: #dc2626; --card: #f8fafc;
+    }
+    body { width: 400px; font: 13px/1.45 system-ui, "Segoe UI", sans-serif;
+           color: var(--ink); padding: 0; margin: 0; }
+    header { display: flex; align-items: center; gap: 8px; padding: 10px 12px 0; }
+    header .brand { font-weight: 700; font-size: 14px; }
+    .mode-switch { margin-left: auto; display: flex; border: 1px solid var(--line);
+                   border-radius: 8px; overflow: hidden; }
+    .mode-switch button { border: 0; background: #fff; color: var(--muted);
+      padding: 4px 12px; font: inherit; font-weight: 600; cursor: pointer; }
+    .mode-switch button.on { background: var(--accent); color: var(--accent-ink); }
+    .view { padding: 10px 12px 12px; }
+    textarea { width: 100%; box-sizing: border-box; height: 70px; border: 1px solid
+               var(--line); border-radius: 8px; padding: 8px; font: inherit; }
+    textarea:focus { outline: 2px solid #c7d2fe; border-color: var(--accent); }
+
+    /* ---- simple mode ---- */
+    .label { color: var(--muted); font-weight: 600; margin: 6px 0 4px; }
+    .ready-line { display: flex; align-items: center; gap: 6px; color: var(--muted);
+                  margin: 8px 0; }
+    .ready-line .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--ok); }
+    .btn-start { width: 100%; padding: 12px; border: 0; border-radius: 10px;
+      background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff;
+      font: 700 14px/1 inherit; letter-spacing: .04em; cursor: pointer;
+      display: flex; align-items: center; justify-content: center; gap: 8px; }
+    .btn-start:hover { filter: brightness(1.06); }
+    .btn-start:disabled { background: #cbd5e1; color: #f8fafc; cursor: not-allowed; }
+
+    .checklist { border: 1px solid var(--line); border-radius: 10px; padding: 10px;
+                 margin: 10px 0; background: var(--card); }
+    .step { display: flex; align-items: center; gap: 8px; padding: 6px 4px; cursor: pointer; }
+    .step .num { width: 22px; height: 22px; border-radius: 50%; display: flex;
+      align-items: center; justify-content: center; background: #eef2ff;
+      color: var(--accent); font-weight: 700; font-size: 11px; flex: none; }
+    .step.done .num { background: #dcfce7; color: var(--ok); }
+    .step .txt { flex: 1; }
+    .step .txt small { color: var(--muted); display: block; }
+    .step .state { color: var(--muted); display: flex; align-items: center; gap: 4px; }
+    .step.done .state { color: var(--ok); font-weight: 700; }
+    .step.locked { opacity: .55; cursor: default; }
+
+    #timeline { margin-top: 10px; max-height: 230px; overflow-y: auto;
+                display: none; }
+    .tl-divider { display: flex; align-items: center; gap: 8px; color: var(--muted);
+      font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .06em; margin: 10px 0 4px; }
+    .tl-divider::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+    .tl-item { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; }
+    .tl-item .ic { width: 26px; height: 26px; border-radius: 8px; background: #eef2ff;
+      color: var(--accent); display: flex; align-items: center; justify-content: center;
+      flex: none; }
+    .tl-item.attack .ic { background: #fef2f2; color: var(--err); }
+    .tl-item.judge .ic { background: #f5f3ff; color: #7c3aed; }
+    .tl-item.ok .ic { background: #f0fdf4; color: var(--ok); }
+    .tl-item.err .ic { background: #fef2f2; color: var(--err); }
+    .tl-item .tx { padding-top: 3px; }
+    .tl-item.done .tx { color: var(--muted); }
+    .tl-item .spin { animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    .card { border-radius: 10px; padding: 10px; margin-top: 10px; display: none; }
+    .card.result { border: 1px solid #bbf7d0; background: #f0fdf4; }
+    .card.error { border: 1px solid #fecaca; background: #fef2f2; }
+    .card .head { display: flex; align-items: center; gap: 8px; font-weight: 700; }
+    .card.result .head { color: var(--ok); }
+    .card.error .head { color: var(--err); }
+    .card .preview { margin: 8px 0; color: var(--ink); max-height: 90px;
+      overflow-y: auto; white-space: pre-wrap; }
+    .card .actions { display: flex; gap: 8px; }
+    .card button { border: 1px solid var(--line); background: #fff; border-radius: 8px;
+      padding: 6px 12px; font: inherit; font-weight: 600; cursor: pointer;
+      display: flex; align-items: center; gap: 6px; }
+    .card button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    /* ---- advanced mode (unchanged controls, restyled containers) ---- */
+    #advancedView { display: none; }
     h2 { font-size: 14px; margin: 4px 0 8px; }
-    textarea { width: 100%; box-sizing: border-box; height: 70px; }
     .tabs { margin: 8px 0; max-height: 140px; overflow-y: auto; }
     .tab-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
-    .role { color: #666; }
+    .role { color: var(--muted); }
     .row { display: flex; gap: 10px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
-    button { padding: 6px 14px; }
+    #advancedView button { padding: 6px 14px; }
     #status { margin-top: 8px; white-space: pre-wrap; max-height: 120px; overflow-y: auto;
-              background: #f4f4f4; padding: 6px; display: none; }
-    .err { color: #b00; }
+              background: var(--card); padding: 6px; display: none; }
+    .err { color: var(--err); }
   </style>
 </head>
 <body>
-  <h2>AI Council — Multi-Model Debate</h2>
-
-  <textarea id="idea" placeholder="Paste your idea / prompt / Antigravity question here..."></textarea>
-
-  <div class="tabs" id="tabs">Scanning chat tabs...</div>
-
-  <div class="row">
-    <label>Rounds:
-      <select id="rounds">
-        <option>1</option>
-        <option>2</option>
-        <option selected>3</option>
-        <option>4</option>
-      </select>
-    </label>
-    <label><input type="checkbox" id="earlyStop"> Judge may stop early on agreement</label>
-  </div>
-
-  <div class="row">
-    <label><input type="checkbox" id="adversarial"> Adversary mode (rotates attacker each round)</label>
-    <label><input type="checkbox" id="digest" checked> Referee digest (compresses context between rounds)</label>
-  </div>
-
-  <div class="row">
-    <button id="debate" title="Fully automatic — needs working site selectors">Auto Debate</button>
-    <button id="manual" title="You paste and select; immune to UI changes">Manual Debate</button>
-    <button id="question" title="Use when Antigravity hit a bug/error">Resolve Question</button>
-  </div>
-
-  <div id="manualBox" style="display:none">
-    <div id="manualStep" style="margin-top:8px; font-weight:bold;"></div>
-    <textarea id="manualPrompt" readonly style="height:90px; margin-top:4px;"></textarea>
-    <div class="row">
-      <button id="copyPrompt">Copy prompt</button>
-      <button id="capture">Capture selected answer</button>
+  <header>
+    <span class="brand">AI Council</span>
+    <div class="mode-switch">
+      <button id="modeSimple" class="on">Simple</button>
+      <button id="modeAdvanced">Advanced</button>
     </div>
-    <div id="manualHint" class="role"></div>
+  </header>
+
+  <!-- ================= SIMPLE ================= -->
+  <div class="view" id="simpleView">
+    <div class="label">What do you want to build?</div>
+    <textarea id="simpleIdea" placeholder="Describe your idea in plain words — the models will debate it and hand you a framework…"></textarea>
+
+    <div class="ready-line" id="simpleReady"></div>
+    <div class="checklist" id="checklist"></div>
+
+    <button class="btn-start" id="simpleStart">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      START THE DEBATE
+    </button>
+
+    <div id="timeline"></div>
+    <div class="card result" id="resultCard"></div>
+    <div class="card error" id="errorCard"></div>
   </div>
 
-  <div id="status"></div>
+  <!-- ================= ADVANCED ================= -->
+  <div class="view" id="advancedView">
+    <h2>Debate setup</h2>
+    <textarea id="idea" placeholder="Paste your idea / prompt / Antigravity question here..."></textarea>
 
-  <h2 style="margin-top:12px">Daemon (v2 — Project Brain + MCP)</h2>
-  <div class="row">
-    <span id="daemonDot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#999"></span>
-    <span id="daemonState">checking…</span>
-    <label style="margin-left:auto"><input type="checkbox" id="armDaemon"> Arm daemon mode</label>
+    <div class="tabs" id="tabs">Scanning chat tabs...</div>
+
+    <div class="row">
+      <label>Rounds:
+        <select id="rounds">
+          <option>1</option>
+          <option>2</option>
+          <option selected>3</option>
+          <option>4</option>
+        </select>
+      </label>
+      <label><input type="checkbox" id="earlyStop"> Judge may stop early on agreement</label>
+    </div>
+
+    <div class="row">
+      <label><input type="checkbox" id="adversarial"> Adversary mode (rotates attacker each round)</label>
+      <label><input type="checkbox" id="digest" checked> Referee digest (compresses context between rounds)</label>
+    </div>
+
+    <div class="row">
+      <button id="debate" title="Fully automatic — needs working site selectors">Auto Debate</button>
+      <button id="manual" title="You paste and select; immune to UI changes">Manual Debate</button>
+      <button id="question" title="Use when Antigravity hit a bug/error">Resolve Question</button>
+    </div>
+
+    <div id="manualBox" style="display:none">
+      <div id="manualStep" style="margin-top:8px; font-weight:bold;"></div>
+      <textarea id="manualPrompt" readonly style="height:90px; margin-top:4px;"></textarea>
+      <div class="row">
+        <button id="copyPrompt">Copy prompt</button>
+        <button id="capture">Capture selected answer</button>
+      </div>
+      <div id="manualHint" class="role"></div>
+    </div>
+
+    <div id="status"></div>
+
+    <h2 style="margin-top:12px">Daemon (v2 — Project Brain + MCP)</h2>
+    <div class="row">
+      <span id="daemonDot" style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#999"></span>
+      <span id="daemonState">checking…</span>
+      <label style="margin-left:auto"><input type="checkbox" id="armDaemon"> Arm daemon mode</label>
+    </div>
+    <div class="row">
+      <input id="projName" placeholder="Project name" style="flex:1">
+      <input id="projRoot" placeholder="Project folder (for framework.md)" style="flex:1">
+      <button id="saveProject">Save</button>
+    </div>
+    <div class="row">
+      <label>Routing:
+        <select id="daemonRouting">
+          <option value="conservative">Conservative</option>
+          <option value="balanced" selected>Balanced</option>
+          <option value="aggressive">Aggressive</option>
+        </select>
+      </label>
+      <label>Judges:
+        <select id="daemonJudges">
+          <option value="single">Single</option>
+          <option value="synthesis" selected>Synthesis (2 + chief)</option>
+          <option value="panel">Panel vote</option>
+          <option value="weighted">Weighted panel</option>
+        </select>
+      </label>
+    </div>
+    <div id="sessions"></div>
   </div>
-  <div class="row">
-    <input id="projName" placeholder="Project name" style="flex:1">
-    <input id="projRoot" placeholder="Project folder (for framework.md)" style="flex:1">
-    <button id="saveProject">Save</button>
-  </div>
-  <div class="row">
-    <label>Routing:
-      <select id="daemonRouting">
-        <option value="conservative">Conservative</option>
-        <option value="balanced" selected>Balanced</option>
-        <option value="aggressive">Aggressive</option>
-      </select>
-    </label>
-    <label>Judges:
-      <select id="daemonJudges">
-        <option value="single">Single</option>
-        <option value="synthesis" selected>Synthesis (2 + chief)</option>
-        <option value="panel">Panel vote</option>
-        <option value="weighted">Weighted panel</option>
-      </select>
-    </label>
-  </div>
-  <div id="sessions"></div>
 
   <script src="prompts.js"></script>
   <script src="popup.js"></script>

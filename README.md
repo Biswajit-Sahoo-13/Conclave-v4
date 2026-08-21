@@ -4,22 +4,40 @@ Two parts, two branches:
 
 - **`main`** — v0.2: standalone Chrome extension (local engine, manual mode).
   Works with zero setup.
-- **`v1-complex-high-features`** (this branch) — v1.0: adds the local
-  **council daemon** (Node.js, zero npm dependencies) with a real SQLite
-  **Project Brain**, **adaptive routing**, **multi-judge ensembles**, and an
-  **MCP server** that lets Antigravity run debates automatically.
+- **`v1-complex-high-features`** (this branch) — v1.1: Simple/Advanced UI on
+  top of the local **council daemon** (Node.js, zero npm dependencies) with a
+  real SQLite **Project Brain**, **adaptive routing**, **multi-judge
+  ensembles**, and an **MCP server** for Antigravity.
 
-## Quick start (daemon)
+## The two UI modes (v1.1)
+
+- **Simple (default)** — paste your idea, press *Start the debate*, watch a
+  live timeline (thinking / attacking / refereeing / judging) with inline SVG
+  icons. Roles auto-assign from your open tabs; quality defaults are locked
+  (3 rounds, adversary on, referee digest on). Zero setup, no daemon needed.
+  First run shows a guided checklist that auto-checks as you open the chat
+  sites. Errors come with *Try again* / *Use Manual mode* actions.
+- **Advanced** — the full v1.0 surface: role matrix, rounds, early-stop,
+  adversary, digest, Auto/Manual/Resolve, and the Daemon panel (project,
+  routing + judge modes, session history, feedback, arm toggle).
+
+## Quick start (noob path)
+
+1. Load the extension (below), open `chat.qwen.ai` and `chat.z.ai`, log in.
+2. Click the AI Council icon — the checklist auto-checks as tabs appear.
+3. Paste your idea → **START THE DEBATE** → watch the timeline → open
+   `framework.md` from the green result card.
+
+## Quick start (daemon, Advanced)
 
 1. Start the daemon: double-click `daemon/start-council.bat`
    (or `node daemon/server.js`). It listens on `http://127.0.0.1:8765`
    and stores the Brain in `%USERPROFILE%\.ai-council\council.db`.
-2. Reload the extension in `chrome://extensions` (v1.0.0 from this branch).
-3. Open your chat tabs, open the popup, pick debaters + judge as usual.
-4. In the **Daemon** panel: set a project name and (optionally) a project
+2. Switch the popup to **Advanced**, pick debaters + judge.
+3. In the **Daemon** panel: set a project name and (optionally) a project
    folder — verdicts get written there as `framework.md` / `resolution.md`.
    Choose routing mode and judge mode, then check **Arm daemon mode**.
-5. Now debates can be triggered two ways:
+4. Now debates can be triggered two ways:
    - From Antigravity via MCP (see below) — fully automatic loop.
    - `curl -X POST http://127.0.0.1:8765/api/debate -d '{"question":"..."}'`
 

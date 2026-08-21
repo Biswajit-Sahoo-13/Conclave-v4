@@ -1,5 +1,7 @@
-// Popup: scans open tabs for supported chat sites, lets the user assign
-// roles (debater / judge), then starts the debate in the background.
+// AI Council popup — two modes:
+//   Simple: zero-config live debate timeline (local engine, no daemon)
+//   Advanced: full v1.0 control surface (roles, manual, daemon, MCP)
+// All icons are inline SVG (extension CSP forbids remote assets).
 
 const KNOWN_HOSTS = {
   "chat.qwen.ai": "Qwen",
@@ -8,12 +10,57 @@ const KNOWN_HOSTS = {
   "chatgpt.com": "ChatGPT",
   "claude.ai": "Claude"
 };
+const SITE_URLS = {
+  "Qwen": "https://chat.qwen.ai",
+  "GLM": "https://chat.z.ai",
+  "Gemini": "https://gemini.google.com",
+  "ChatGPT": "https://chatgpt.com",
+  "Claude": "https://claude.ai"
+};
 
-const tabsEl = document.getElementById("tabs");
-const statusEl = document.getElementById("status");
+// ---------- inline SVG icons (feather-style, stroke = currentColor) ----------
+const svg = (paths, size = 14) =>
+  `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${paths}</svg>`;
+const ICONS = {
+  play: `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>`,
+  think: svg(`<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>`),
+  attack: svg(`<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" fill="currentColor" stroke="none"/>`),
+  notes: svg(`<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>`),
+  agree: svg(`<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>`),
+  judge: svg(`<line x1="12" y1="3" x2="12" y2="21"/><line x1="5" y1="7" x2="19" y2="7"/><path d="M5 7l-2.5 6a3 3 0 0 0 5 0L5 7z"/><path d="M19 7l-2.5 6a3 3 0 0 0 5 0L19 7z"/>`),
+  check: svg(`<polyline points="20 6 9 17 4 12"/>`),
+  clock: svg(`<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>`),
+  alert: svg(`<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`),
+  lock: svg(`<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>`),
+  open: svg(`<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>`),
+  retry: svg(`<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>`)
+};
+
+const $ = (id) => document.getElementById(id);
+const tabsEl = $("tabs");
+const statusEl = $("status");
 const chatTabs = []; // {tabId, name, title}
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+
+// ============================================================
+// Tab scanning (shared by checklist, simple ready-line, advanced matrix)
+// ============================================================
+
+async function scanTabs() {
+  chatTabs.length = 0;
+  const all = await chrome.tabs.query({});
+  for (const t of all) {
+    if (!t.url) continue;
+    let host;
+    try { host = new URL(t.url).host; } catch (_) { continue; }
+    if (KNOWN_HOSTS[host]) {
+      chatTabs.push({ tabId: t.id, name: KNOWN_HOSTS[host], title: (t.title || "").slice(0, 30) });
+    }
+  }
+  renderTabs();
+  renderSimpleChrome();
+}
 
 function renderTabs() {
   if (!chatTabs.length) {
@@ -30,21 +77,216 @@ function renderTabs() {
       </div>`).join("");
 }
 
-async function scanTabs() {
-  const all = await chrome.tabs.query({});
-  for (const t of all) {
-    if (!t.url) continue;
-    let host;
-    try { host = new URL(t.url).host; } catch (_) { continue; }
-    if (KNOWN_HOSTS[host]) {
-      chatTabs.push({ tabId: t.id, name: KNOWN_HOSTS[host], title: (t.title || "").slice(0, 30) });
-    }
-  }
-  renderTabs();
+// ============================================================
+// Mode switching
+// ============================================================
+
+let uiMode = "simple";
+
+async function setMode(mode) {
+  // keep idea text in sync between the two textareas
+  const from = uiMode === "simple" ? $("simpleIdea") : $("idea");
+  const to = mode === "simple" ? $("simpleIdea") : $("idea");
+  if (from.value.trim()) to.value = from.value;
+  uiMode = mode;
+  $("modeSimple").classList.toggle("on", mode === "simple");
+  $("modeAdvanced").classList.toggle("on", mode === "advanced");
+  $("simpleView").style.display = mode === "simple" ? "block" : "none";
+  $("advancedView").style.display = mode === "advanced" ? "block" : "none";
+  chrome.storage.local.set({ uiMode: mode }).catch(() => {});
+}
+$("modeSimple").addEventListener("click", () => setMode("simple"));
+$("modeAdvanced").addEventListener("click", () => setMode("advanced"));
+
+// ============================================================
+// SIMPLE MODE
+// ============================================================
+
+function simpleRoles() {
+  if (chatTabs.length < 2) return null;
+  const debaters = [chatTabs[0], chatTabs[1]];
+  const judge = chatTabs[2] || chatTabs[1];
+  return { debaters, judge };
 }
 
+function renderSimpleChrome() {
+  if (uiMode !== "simple") return;
+  const roles = simpleRoles();
+  const ready = $("simpleReady");
+  const start = $("simpleStart");
+  const checklist = $("checklist");
+
+  if (roles) {
+    const judgeName = roles.judge.name;
+    ready.innerHTML = `<span class="dot"></span> ${esc(roles.debaters.map(d => d.name).join(" + "))} ready — ${esc(judgeName)} will judge`;
+    start.disabled = false;
+    checklist.style.display = "none";
+  } else {
+    ready.innerHTML = `<span class="dot" style="background:#cbd5e1"></span> Waiting for your chat tabs…`;
+    start.disabled = true;
+    renderChecklist();
+    checklist.style.display = "block";
+  }
+}
+
+function renderChecklist() {
+  const names = ["Qwen", "GLM"];
+  const detected = (n) => chatTabs.some(t => t.name === n);
+  const both = names.every(detected);
+  const steps = names.map((n, i) => {
+    const on = detected(n);
+    return `
+      <div class="step ${on ? "done" : ""}" data-site="${n}">
+        <span class="num">${on ? ICONS.check : (i + 1)}</span>
+        <span class="txt">Open ${n}<small>${SITE_URLS[n].replace("https://", "")} — log in normally</small></span>
+        <span class="state">${on ? "detected" : ICONS.clock + " waiting"}</span>
+      </div>`;
+  }).join("") + `
+      <div class="step ${both ? "" : "locked"}" id="stepStart">
+        <span class="num">${both ? ICONS.play : ICONS.lock}</span>
+        <span class="txt">Press <b>Start the debate</b><small>The extension does everything else</small></span>
+        <span class="state">${both ? "ready" : "locked"}</span>
+      </div>`;
+  $("checklist").innerHTML = steps;
+  $("checklist").querySelectorAll("[data-site]").forEach(el =>
+    el.addEventListener("click", () => chrome.tabs.create({ url: SITE_URLS[el.dataset.site] })));
+}
+
+// ---- live timeline ----
+
+const timelineEl = $("timeline");
+const bubblesByName = {}; // "GLM" -> element currently "thinking"
+
+function showTimeline() {
+  timelineEl.style.display = "block";
+  timelineEl.innerHTML = "";
+  $("resultCard").style.display = "none";
+  $("errorCard").style.display = "none";
+}
+
+function scrollTl() { timelineEl.scrollTop = timelineEl.scrollHeight; }
+
+function tlDivider(text) {
+  timelineEl.insertAdjacentHTML("beforeend", `<div class="tl-divider">${esc(text)}</div>`);
+  scrollTl();
+}
+
+function tlBubble(kind, iconKey, text) {
+  const id = "tl" + Math.random().toString(36).slice(2, 8);
+  timelineEl.insertAdjacentHTML("beforeend",
+    `<div class="tl-item ${kind}" id="${id}"><span class="ic spin">${ICONS[iconKey]}</span><span class="tx">${esc(text)}</span></div>`);
+  scrollTl();
+  return document.getElementById(id);
+}
+
+// Translate internal PROGRESS lines into noob-friendly timeline events.
+function tlTranslate(line) {
+  let m;
+  if ((m = line.match(/^--- Round (\d+)\/(\d+) ---$/))) {
+    tlDivider(`Round ${m[1]} of ${m[2]}`);
+  } else if ((m = line.match(/^Sending to (\S+?) \(adversary\)\.\.\.$/))) {
+    bubblesByName[m[1]] = tlBubble("attack", "attack", `${m[1]} is attacking the other answer to find mistakes…`);
+  } else if ((m = line.match(/^Sending to (\S+?)\.\.\.$/))) {
+    bubblesByName[m[1]] = tlBubble("", "think", `${m[1]} is thinking…`);
+  } else if ((m = line.match(/^(\S+?) answered \((\d+) chars\)\./))) {
+    const b = bubblesByName[m[1]];
+    if (b) {
+      b.classList.add("done");
+      b.classList.remove("attack");
+      b.querySelector(".ic").classList.remove("spin");
+      b.querySelector(".ic").innerHTML = ICONS.check;
+      b.querySelector(".tx").textContent = `${m[1]} answered`;
+    }
+  } else if (/^Compressing round/.test(line)) {
+    tlBubble("", "notes", "Referee is summarizing the debate…");
+  } else if (/^Asking \S+ if models agree/.test(line)) {
+    tlBubble("", "agree", "Checking if the models agree…");
+  } else if ((m = line.match(/^Requesting final framework from (\S+?)\.\.\.$/))) {
+    tlBubble("judge", "judge", `Judge ${m[1]} is writing the final framework…`);
+  } else if (/^Done\./.test(line)) {
+    // final card handled by the response callback
+  } else if (/failed|FAILED|Timed out|timed out/.test(line)) {
+    tlBubble("err", "alert", "Something went wrong — see the message below.");
+  }
+}
+
+function showResult(verdict, downloadId) {
+  const card = $("resultCard");
+  card.innerHTML =
+    `<div class="head">${ICONS.check} Debate finished — framework ready</div>` +
+    `<div class="preview">${esc((verdict || "").slice(0, 400))}${(verdict || "").length > 400 ? "…" : ""}</div>` +
+    `<div class="actions">
+       <button class="primary" id="openFile">${ICONS.open} Open framework.md</button>
+     </div>`;
+  card.style.display = "block";
+  if (downloadId != null) {
+    $("openFile").addEventListener("click", () => chrome.downloads.show(downloadId));
+  }
+}
+
+function showError(message) {
+  const card = $("errorCard");
+  card.innerHTML =
+    `<div class="head">${ICONS.alert} The debate couldn't finish</div>` +
+    `<div class="preview">${esc(message)}</div>` +
+    `<div class="actions">
+       <button class="primary" id="btnRetry">${ICONS.retry} Try again</button>
+       <button id="btnManual">Use Manual mode</button>
+     </div>`;
+  card.style.display = "block";
+  $("btnRetry").addEventListener("click", () => startSimple());
+  $("btnManual").addEventListener("click", () => {
+    setMode("advanced");
+    $("manualBox").style.display = "block";
+  });
+}
+
+// Locked quality defaults; auto-assigned roles.
+async function startSimple() {
+  const idea = $("simpleIdea").value.trim();
+  if (!idea) { $("simpleIdea").focus(); return; }
+  const roles = simpleRoles();
+  if (!roles) return;
+
+  const config = {
+    idea,
+    debaters: roles.debaters,
+    judge: roles.judge,
+    maxRounds: 3,
+    earlyStop: false,
+    adversarial: true,
+    digest: true,
+    timeoutMs: 300000
+  };
+
+  $("simpleStart").disabled = true;
+  showTimeline();
+  tlDivider("Setting up your chat tabs");
+
+  // ensure content scripts exist in the target tabs (tabs may predate install)
+  for (const t of [...config.debaters, config.judge]) {
+    await chrome.scripting.executeScript({
+      target: { tabId: t.tabId }, files: ["sites.js", "content.js"]
+    }).catch(() => {});
+  }
+
+  chrome.runtime.sendMessage({ type: "START_DEBATE", config }, (res) => {
+    $("simpleStart").disabled = false;
+    if (chrome.runtime.lastError || !res || !res.ok) {
+      showError((res && res.error) || chrome.runtime.lastError?.message || "Unknown error");
+    } else {
+      showResult(res.verdict, res.downloadId);
+    }
+  });
+}
+$("simpleStart").addEventListener("click", startSimple);
+
+// ============================================================
+// ADVANCED MODE (v1.0 behavior, unchanged)
+// ============================================================
+
 function getConfig(mode) {
-  const idea = document.getElementById("idea").value.trim();
+  const idea = $("idea").value.trim();
   if (!idea) return { error: "Paste your idea or question first." };
 
   const debaters = [];
@@ -60,14 +302,15 @@ function getConfig(mode) {
     return { error: "Judge cannot be the only debater — select another debater or another judge." };
   }
   // adversary marking is computed per round (rotating) later — only the flag here
+
   return {
     idea,
     debaters,
     judge,
-    maxRounds: parseInt(document.getElementById("rounds").value, 10),
-    earlyStop: document.getElementById("earlyStop").checked,
-    adversarial: document.getElementById("adversarial").checked,
-    digest: document.getElementById("digest").checked,
+    maxRounds: parseInt($("rounds").value, 10),
+    earlyStop: $("earlyStop").checked,
+    adversarial: $("adversarial").checked,
+    digest: $("digest").checked,
     timeoutMs: 300000
   };
 }
@@ -75,10 +318,10 @@ function getConfig(mode) {
 // Remember settings between sessions
 function saveSettings() {
   const cfg = {
-    rounds: document.getElementById("rounds").value,
-    earlyStop: document.getElementById("earlyStop").checked,
-    adversarial: document.getElementById("adversarial").checked,
-    digest: document.getElementById("digest").checked
+    rounds: $("rounds").value,
+    earlyStop: $("earlyStop").checked,
+    adversarial: $("adversarial").checked,
+    digest: $("digest").checked
   };
   chrome.storage.sync.set(cfg).catch(() => {});
 }
@@ -86,10 +329,10 @@ function saveSettings() {
 async function loadSettings() {
   try {
     const s = await chrome.storage.sync.get(["rounds", "earlyStop", "adversarial", "digest"]);
-    if (s.rounds) document.getElementById("rounds").value = s.rounds;
-    document.getElementById("earlyStop").checked = !!s.earlyStop;
-    document.getElementById("adversarial").checked = !!s.adversarial;
-    if (typeof s.digest === "boolean") document.getElementById("digest").checked = s.digest;
+    if (s.rounds) $("rounds").value = s.rounds;
+    $("earlyStop").checked = !!s.earlyStop;
+    $("adversarial").checked = !!s.adversarial;
+    if (typeof s.digest === "boolean") $("digest").checked = s.digest;
   } catch (_) { /* storage unavailable — defaults are fine */ }
 }
 
@@ -126,23 +369,24 @@ async function start(type) {
 
 // Live progress updates from the background worker
 chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "PROGRESS") showStatus(msg.log.join("\n"));
+  if (msg.type === "PROGRESS") {
+    if (uiMode === "simple" && timelineEl.style.display !== "none") {
+      msg.log.forEach(tlTranslate);
+    } else {
+      showStatus(msg.log.join("\n"));
+    }
+  }
 });
 
-document.getElementById("debate").addEventListener("click", () => start("START_DEBATE"));
-document.getElementById("question").addEventListener("click", () => start("START_QUESTION"));
-scanTabs();
-loadSettings();
+$("debate").addEventListener("click", () => start("START_DEBATE"));
+$("question").addEventListener("click", () => start("START_QUESTION"));
 
 // ---------------- manual mode ----------------
-// Same debate logic as background.js, but you are the "hands": copy each
-// prompt into the tab yourself, select the model's answer, click Capture.
-// Immune to UI redesigns because it never touches site selectors.
 
-const manualBox = document.getElementById("manualBox");
-const manualStep = document.getElementById("manualStep");
-const manualPrompt = document.getElementById("manualPrompt");
-const manualHint = document.getElementById("manualHint");
+const manualBox = $("manualBox");
+const manualStep = $("manualStep");
+const manualPrompt = $("manualPrompt");
+const manualHint = $("manualHint");
 
 let manual = null; // {config, steps, idx, answers}
 
@@ -166,8 +410,9 @@ function showManualStep() {
       judgeTranscript(manual.config.debaters, manual.answers);
   } else if (s.round > 1) {
     // adversary rotates each round, same as auto mode
-    const idx = manual.config.debaters.findIndex(d => d.tabId === s.tab.tabId);
-    manual.config.debaters.forEach((d, i) => { d.adversarial = manual.config.adversarial && i === (s.round - 1) % manual.config.debaters.length; });
+    manual.config.debaters.forEach((d, i) => {
+      d.adversarial = manual.config.adversarial && i === (s.round - 1) % manual.config.debaters.length;
+    });
     // built here, not upfront: needs the answers captured so far
     s.prompt = buildDebatePrompt(s.round, manual.config.idea,
       othersBlock(manual.config.debaters, manual.answers, s.tab.tabId), s.tab.adversarial);
@@ -220,7 +465,7 @@ function finishManual() {
   showStatus("Manual debate complete. framework.md saved.");
 }
 
-document.getElementById("manual").addEventListener("click", () => {
+$("manual").addEventListener("click", () => {
   const config = getConfig();
   if (config.error) return showStatus(config.error, true);
   config.debaters.forEach(d => { d.adversarial = false; });
@@ -230,12 +475,12 @@ document.getElementById("manual").addEventListener("click", () => {
   showManualStep();
 });
 
-document.getElementById("copyPrompt").addEventListener("click", async () => {
+$("copyPrompt").addEventListener("click", async () => {
   await navigator.clipboard.writeText(manualPrompt.value);
   manualHint.textContent = "Copied. Paste it into the chat tab now.";
 });
 
-document.getElementById("capture").addEventListener("click", async () => {
+$("capture").addEventListener("click", async () => {
   const s = manual.steps[manual.idx];
   if (!s) return;
   const text = await captureFrom(s.tab.tabId);
@@ -250,8 +495,6 @@ document.getElementById("capture").addEventListener("click", async () => {
 });
 
 // ---------------- daemon (v2) panel ----------------
-// The daemon owns SQLite, adaptive routing, judge ensembles and MCP.
-// Arming publishes the tab roster so the daemon can drive these tabs.
 
 const DAEMON = "http://127.0.0.1:8765";
 
@@ -273,7 +516,7 @@ function buildRoster() {
   return roster;
 }
 
-document.getElementById("armDaemon").addEventListener("change", async (e) => {
+$("armDaemon").addEventListener("change", async (e) => {
   const roster = buildRoster();
   if (e.target.checked && !roster.length) {
     showStatus("Select at least one debater/judge tab above before arming.", true);
@@ -291,16 +534,16 @@ async function savePrefs() {
     await daemonFetch("/api/prefs", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        routingMode: document.getElementById("daemonRouting").value,
-        judgeMode: document.getElementById("daemonJudges").value
+        routingMode: $("daemonRouting").value,
+        judgeMode: $("daemonJudges").value
       })
     });
   } catch (_) { /* daemon offline */ }
 }
 
-document.getElementById("saveProject").addEventListener("click", async () => {
-  const name = document.getElementById("projName").value.trim() || "default";
-  const rootPath = document.getElementById("projRoot").value.trim() || null;
+$("saveProject").addEventListener("click", async () => {
+  const name = $("projName").value.trim() || "default";
+  const rootPath = $("projRoot").value.trim() || null;
   try {
     await daemonFetch("/api/project", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -311,11 +554,11 @@ document.getElementById("saveProject").addEventListener("click", async () => {
 });
 
 ["daemonRouting", "daemonJudges"].forEach(id =>
-  document.getElementById(id).addEventListener("change", savePrefs));
+  $(id).addEventListener("change", savePrefs));
 
 async function checkDaemon() {
-  const dot = document.getElementById("daemonDot");
-  const state = document.getElementById("daemonState");
+  const dot = $("daemonDot");
+  const state = $("daemonState");
   try {
     const r = await (await daemonFetch("/status")).json();
     dot.style.background = "#2c2";
@@ -329,7 +572,7 @@ async function checkDaemon() {
 }
 
 async function loadSessions() {
-  const el = document.getElementById("sessions");
+  const el = $("sessions");
   try {
     const r = await (await daemonFetch("/api/sessions?limit=5")).json();
     if (!r.sessions.length) { el.innerHTML = "<div class='role'>No sessions yet.</div>"; return; }
@@ -350,5 +593,15 @@ async function loadSessions() {
   }
 }
 
-checkDaemon();
-loadSessions();
+// ---------------- boot ----------------
+
+(async () => {
+  const stored = await chrome.storage.local.get("uiMode").catch(() => ({}));
+  if (stored.uiMode === "advanced") setMode("advanced");
+  await scanTabs();
+  loadSettings();
+  checkDaemon();
+  loadSessions();
+  // live checklist: re-scan while the popup is open
+  setInterval(scanTabs, 3000);
+})();
