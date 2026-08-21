@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body { width: 380px; font: 13px/1.45 system-ui, sans-serif; padding: 10px; }
+    h2 { font-size: 14px; margin: 4px 0 8px; }
+    textarea { width: 100%; box-sizing: border-box; height: 70px; }
+    .tabs { margin: 8px 0; max-height: 140px; overflow-y: auto; }
+    .tab-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; }
+    .role { color: #666; }
+    .row { display: flex; gap: 10px; align-items: center; margin: 6px 0; flex-wrap: wrap; }
+    button { padding: 6px 14px; }
+    #status { margin-top: 8px; white-space: pre-wrap; max-height: 120px; overflow-y: auto;
+              background: #f4f4f4; padding: 6px; display: none; }
+    .err { color: #b00; }
+  </style>
+</head>
+<body>
+  <h2>AI Council — Multi-Model Debate</h2>
+
+  <textarea id="idea" placeholder="Paste your idea / prompt / Antigravity question here..."></textarea>
+
+  <div class="tabs" id="tabs">Scanning chat tabs...</div>
+
+  <div class="row">
+    <label>Rounds:
+      <select id="rounds">
+        <option>1</option>
+        <option>2</option>
+        <option selected>3</option>
+        <option>4</option>
+      </select>
+    </label>
+    <label><input type="checkbox" id="earlyStop"> Judge may stop early on agreement</label>
+  </div>
+
+  <div class="row">
+    <label><input type="checkbox" id="adversarial"> Adversary mode (last debater must attack, not agree)</label>
+  </div>
+
+  <div class="row">
+    <button id="debate" title="Fully automatic — needs working site selectors">Auto Debate</button>
+    <button id="manual" title="You paste and select; immune to UI changes">Manual Debate</button>
+    <button id="question" title="Use when Antigravity hit a bug/error">Resolve Question</button>
+  </div>
+
+  <div id="manualBox" style="display:none">
+    <div id="manualStep" style="margin-top:8px; font-weight:bold;"></div>
+    <textarea id="manualPrompt" readonly style="height:90px; margin-top:4px;"></textarea>
+    <div class="row">
+      <button id="copyPrompt">Copy prompt</button>
+      <button id="capture">Capture selected answer</button>
+    </div>
+    <div id="manualHint" class="role"></div>
+  </div>
+
+  <div id="status"></div>
+
+  <script src="prompts.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

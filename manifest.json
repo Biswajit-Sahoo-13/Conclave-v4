@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "AI Council — Multi-Model Debate",
+  "version": "0.1.0",
+  "description": "Send an idea to your open AI chat tabs, make them critique each other, and let a judge model produce the final framework.",
+  "permissions": ["tabs", "scripting", "downloads", "storage"],
+  "host_permissions": [
+    "https://chat.qwen.ai/*",
+    "https://chat.z.ai/*",
+    "https://gemini.google.com/*",
+    "https://chatgpt.com/*",
+    "https://claude.ai/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AI Council"
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chat.qwen.ai/*",
+        "https://chat.z.ai/*",
+        "https://gemini.google.com/*",
+        "https://chatgpt.com/*",
+        "https://claude.ai/*"
+      ],
+      "js": ["sites.js", "content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
