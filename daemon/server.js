@@ -40,27 +40,38 @@ class AgentHub {
     else reject(new Error(result.error || 'extension reported failure'));
     return true;
   }
+  _dispatch(command, timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const callId = crypto.randomUUID();
+      this.current = {
+        command: { ...command, callId },
+        resolve, reject,
+        timer: setTimeout(() => {
+          if (this.current && this.current.command.callId === callId) {
+            this.current = null;
+            reject(new Error(`timeout waiting for ${command.site} (is Chrome open with the extension armed?)`));
+          }
+        }, timeoutMs)
+      };
+    });
+  }
   callModel(role, entry, prompt) {
     if (this.current) return Promise.reject(new Error('another model call is in flight'));
     if (!this.hasRoster()) {
       return Promise.reject(new Error(
         'open Chrome with the AI Council extension and arm Daemon mode (roster empty)'));
     }
-    return new Promise((resolve, reject) => {
-      const callId = crypto.randomUUID();
-      const command = { op: 'send_and_wait', callId, role, site: entry.site, prompt };
-      const clear = () => {
-        if (this.current && this.current.command.callId === callId) this.current = null;
-      };
-      this.current = {
-        command,
-        resolve, reject,
-        timer: setTimeout(() => {
-          clear();
-          reject(new Error(`timeout waiting for ${entry.name} (is Chrome open with the extension armed?)`));
-        }, CALL_TIMEOUT_MS)
-      };
-    });
+    return this._dispatch(
+      { op: 'send_and_wait', role, site: entry.site, prompt }, CALL_TIMEOUT_MS);
+  }
+  // Extraction rescue: ask the extension for the last assistant text WITHOUT
+  // re-sending the prompt (avoids duplicate chat messages after a failed
+  // extraction race). Resolves null when nothing is dispatchable.
+  extract(site) {
+    if (this.current) return Promise.resolve(null);
+    if (!this.hasRoster()) return Promise.resolve(null);
+    return this._dispatch({ op: 'extract', site }, 30000)
+      .catch(() => null);
   }
 }
 
@@ -78,10 +89,14 @@ function startServer({ port = 0, dbPath } = {}) {
   const writeOutFile = (session, verdict) => {
     const project = brain.getProject(session.project_id);
     if (!project || !project.root_path) return null;
+    // writes are confined to the user's home directory tree
+    const root = path.resolve(project.root_path);
+    const home = path.resolve(os.homedir());
+    if (!root.startsWith(home + path.sep)) return null;
     const file = session.kind === 'question' ? 'resolution.md' : 'framework.md';
     try {
-      fs.mkdirSync(project.root_path, { recursive: true });
-      const target = path.join(project.root_path, file);
+      fs.mkdirSync(root, { recursive: true });
+      const target = path.join(root, file);
       fs.writeFileSync(target,
         `# ${file === 'framework.md' ? 'Project Framework' : 'Resolution'} — AI Council\n\n` +
         `- Session: ${session.id}  Rounds: ${session.rounds_used}\n` +
@@ -91,7 +106,26 @@ function startServer({ port = 0, dbPath } = {}) {
   };
 
   // ---- debate runner shared by MCP tools and /api/debate ----
-  async function askCouncil({ question, context, kind, routingMode, judgeMode, maxRounds }) {
+  let jobRunning = false;
+  const lastText = {}; // model name -> last extracted text (rescue bookkeeping)
+
+  // wrap: on failure, try extract-before-resend at the hub level too
+  const rescueCallModel = async (role, entry, prompt) => {
+    try {
+      const text = await hub.callModel(role, entry, prompt);
+      lastText[entry.name] = text;
+      return text;
+    } catch (e) {
+      const rescue = await hub.extract(entry.site);
+      if (rescue && rescue !== lastText[entry.name]) {
+        lastText[entry.name] = rescue;
+        return rescue;
+      }
+      throw e;
+    }
+  };
+
+  async function askCouncil({ question, context, kind, routingMode, judgeMode, maxRounds, sessionId }) {
     if (!hub.hasRoster()) {
       throw new Error('open Chrome with the AI Council extension and arm Daemon mode (roster empty)');
     }
@@ -103,8 +137,9 @@ function startServer({ port = 0, dbPath } = {}) {
       throw new Error('no judge selected — check a Judge tab in the extension popup, then re-arm');
     }
     const idea = context ? `${question}\n\nContext:\n${context}` : question;
-    const result = await runSession(brain, hub.callModel.bind(hub), {
+    const result = await runSession(brain, rescueCallModel, {
       projectId: project.id,
+      sessionId: sessionId || undefined,
       kind: kind === 'question' ? 'question' : 'framework',
       idea,
       routingMode: routingMode || brain.getSetting('routing_mode') || 'balanced',
@@ -115,6 +150,30 @@ function startServer({ port = 0, dbPath } = {}) {
     const session = brain.getSession(result.sessionId);
     const outFile = writeOutFile(session, result.verdict);
     return { ...result, outFile, project };
+  }
+
+  // Async job start for MCP: returns a session id immediately; the caller
+  // polls get_session / GET /api/session for the verdict. HTTP clients
+  // that prefer to block (curl) can keep using /api/debate.
+  async function startDebateJob(args) {
+    if (jobRunning) throw new Error('a debate is already running');
+    if (!hub.hasRoster()) throw new Error('open Chrome with the AI Council extension and arm Daemon mode (roster empty)');
+    const project = activeProject();
+    const judges = hub.roster.filter(r => r.role === 'judge');
+    if (!judges.length) throw new Error('no judge selected — check a Judge tab in the extension popup, then re-arm');
+    const sessionId = brain.createSession(
+      project.id,
+      args.kind === 'question' ? 'question' : 'framework',
+      args.context ? `${args.question}\n\nContext:\n${args.context}` : args.question,
+      args.routingMode || brain.getSetting('routing_mode') || 'balanced',
+      args.judgeMode || brain.getSetting('judge_mode') || 'synthesis',
+      parseInt(args.maxRounds || brain.getSetting('max_rounds') || '3', 10)
+    );
+    jobRunning = true;
+    askCouncil({ ...args, sessionId })
+      .catch(() => { /* session already marked failed by the engine */ })
+      .finally(() => { jobRunning = false; });
+    return { sessionId };
   }
 
   const json = (res, code, body) => {
@@ -129,8 +188,25 @@ function startServer({ port = 0, dbPath } = {}) {
     req.on('error', reject);
   });
 
+  // Drive-by defense: (1) Host must be the literal loopback address+port so
+  // DNS rebinding cannot reach us; (2) cross-origin browser requests (which
+  // always carry an Origin header) are rejected unless they come from a
+  // chrome-extension:// origin (our extension). Local tools (curl, Antigravity)
+  // send no Origin and are allowed.
+  let boundPort = 0;
+  const requestBlocked = (req) => {
+    const host = String(req.headers.host || '');
+    const allowedHosts = new Set([`127.0.0.1:${boundPort}`, `localhost:${boundPort}`]);
+    if (host && !allowedHosts.has(host.toLowerCase())) return 'bad host';
+    const origin = req.headers.origin;
+    if (origin && !String(origin).startsWith('chrome-extension://')) return 'bad origin';
+    return null;
+  };
+
   const server = http.createServer(async (req, res) => {
     try {
+      const blocked = requestBlocked(req);
+      if (blocked) return json(res, 403, { ok: false, error: `forbidden: ${blocked}` });
       const url = new URL(req.url, 'http://127.0.0.1');
 
       if (req.method === 'GET' && url.pathname === '/status') {
@@ -157,7 +233,7 @@ function startServer({ port = 0, dbPath } = {}) {
 
       if (req.method === 'POST' && url.pathname === '/mcp') {
         const body = await readBody(req);
-        const rpc = await handleMcp(body, { brain, askCouncil, activeProject, hub });
+        const rpc = await handleMcp(body, { brain, askCouncil, startDebateJob, activeProject, hub });
         return json(res, 200, rpc);
       }
 
@@ -216,8 +292,9 @@ function startServer({ port = 0, dbPath } = {}) {
 
   return new Promise((resolve) => {
     server.listen(port, '127.0.0.1', () => {
+      boundPort = server.address().port;
       resolve({
-        server, port: server.address().port, brain, hub,
+        server, port: boundPort, brain, hub,
         askCouncil, close: () => new Promise(r => server.close(r))
       });
     });
