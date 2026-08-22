@@ -30,7 +30,7 @@ Two parts, two branches:
 
 ## Quick start (daemon, Advanced)
 
-1. Start the daemon: double-click `daemon/start-council.bat`
+1. Start the daemon: double-click `daemon/start-conclave.bat`
    (or `node daemon/server.js`). It listens on `http://127.0.0.1:8765`
    and stores the Brain in `%USERPROFILE%\.ai-council\council.db`.
 2. Switch the popup to **Advanced**, pick debaters + judge.
@@ -55,11 +55,11 @@ stdio clients: use `daemon/stdio-bridge.js` as the MCP command.
 
 Example Antigravity config (streamable HTTP):
 ```json
-{ "mcpServers": { "ai-council": { "url": "http://127.0.0.1:8765/mcp" } } }
+{ "mcpServers": { "conclave": { "url": "http://127.0.0.1:8765/mcp" } } }
 ```
 Or stdio:
 ```json
-{ "mcpServers": { "ai-council": {
+{ "mcpServers": { "conclave": {
     "command": "node",
     "args": ["C:/path/to/ai-debate-extension/daemon/stdio-bridge.js"] } } }
 ```

@@ -7,6 +7,7 @@
 const readline = require('node:readline');
 const http = require('node:http');
 
+// AI_COUNCIL_URL: legacy variable name, kept so existing setups keep working
 const DAEMON = process.env.AI_COUNCIL_URL || 'http://127.0.0.1:8765';
 
 function post(body) {

@@ -76,7 +76,7 @@ async function handleMcp(msg, ctx) {
       result: {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'ai-council', version: '1.0.0' }
+        serverInfo: { name: 'conclave', version: '1.0.0' }
       }
     };
   }

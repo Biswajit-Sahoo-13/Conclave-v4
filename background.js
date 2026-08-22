@@ -127,7 +127,7 @@ async function runDebate(config, outFile) {
 
     const md = buildOutputMd(config, log, verdict.text, stoppedEarly);
     const downloadId = await saveFile(outFile || "framework.md", md);
-    report(`Done. ${outFile || "framework.md"} saved to Downloads/ai-council/ (move it into your project for Antigravity).`);
+    report(`Done. ${outFile || "framework.md"} saved to Downloads/conclave/ (move it into your project for Antigravity).`);
     return { ok: true, log, verdict: verdict.text, downloadId };
   } finally {
     running = false;
@@ -166,7 +166,7 @@ function saveFile(filename, text) {
   return new Promise((resolve, reject) => {
     const dataUrl = "data:text/markdown;charset=utf-8," + encodeURIComponent(text);
     chrome.downloads.download(
-      { url: dataUrl, filename: `ai-council/${filename}`, saveAs: false },
+      { url: dataUrl, filename: `conclave/${filename}`, saveAs: false },
       (id) => (chrome.runtime.lastError ? reject(new Error(chrome.runtime.lastError.message)) : resolve(id))
     );
   });

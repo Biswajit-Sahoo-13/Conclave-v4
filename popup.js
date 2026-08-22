@@ -490,7 +490,7 @@ async function captureFrom(tabId) {
 
 function saveMd(filename, text) {
   const dataUrl = "data:text/markdown;charset=utf-8," + encodeURIComponent(text);
-  chrome.downloads.download({ url: dataUrl, filename: `ai-council/${filename}`, saveAs: false });
+  chrome.downloads.download({ url: dataUrl, filename: `conclave/${filename}`, saveAs: false });
 }
 
 function finishManual() {
@@ -504,7 +504,7 @@ function finishManual() {
     `## Original Idea\n\n${cfg.idea}\n\n` +
     `## Judge Verdict\n\n${verdict}\n`;
   saveMd("framework.md", md);
-  manualStep.textContent = "Done — framework.md saved to Downloads/ai-council/";
+  manualStep.textContent = "Done — framework.md saved to Downloads/conclave/";
   manualHint.textContent = "";
   manualPrompt.value = "";
   showStatus("Manual debate complete. framework.md saved.");
