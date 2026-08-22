@@ -1,0 +1,5 @@
+# build artifacts
+council-daemon.exe
+sea-prep.blob
+bundle.cjs
+node_modules/
