@@ -34,53 +34,89 @@ function send(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
 }
 
-// ---------- debate runner (IPC + HTTP share this) ----------
+// ---------- debate runner (IPC + HTTP/MCP share this) ----------
 
-async function askCouncil({ question, context, kind, routingMode, judgeMode, maxRounds }) {
-  if (running) throw new Error('a debate is already running');
+// Per-site serialization (L5): never run two automation scripts in the
+// same webview at once — overlapping page pollers corrupt extraction and
+// can double-send prompts.
+const siteLocks = {}; // site -> tail promise
+function serializeSite(site, fn) {
+  const prev = siteLocks[site] || Promise.resolve();
+  const next = prev.then(fn, fn);
+  siteLocks[site] = next.catch(() => {});
+  return next;
+}
+
+async function askCouncil({ question, context, kind, routingMode, judgeMode, maxRounds, sessionId }) {
   if (!hub.hasRoster()) throw new Error('assign at least one Debater site in the app first');
-  running = true;
-  try {
-    const project = activeProject();
-    const roster = hub.roster;
-    const debaters = roster.filter(r => r.role === 'debater').map(r => ({ tabId: r.site, name: r.name, site: r.site }));
-    const judges = roster.filter(r => r.role === 'judge').map(r => ({ tabId: r.site, name: r.name, site: r.site }));
-    if (!judges.length) throw new Error('assign a Judge site in the app first');
+  const project = activeProject();
+  const roster = hub.roster;
+  const debaters = roster.filter(r => r.role === 'debater').map(r => ({ tabId: r.site, name: r.name, site: r.site }));
+  const judges = roster.filter(r => r.role === 'judge').map(r => ({ tabId: r.site, name: r.name, site: r.site }));
+  if (!judges.length) throw new Error('assign a Judge site in the app first');
 
-    const callModel = hub.bindCallModel(runInWebview, 300000);
-    const emit = (line) => send('council:progress', line);
-    const wrapped = (role, entry, prompt) => {
-      emit(`Sending to ${entry.name}${role === 'adversary' ? ' (adversary)' : ''}...`);
-      return callModel(role, entry, prompt).then(text => {
-        emit(`${entry.name} answered (${text.length} chars).`);
-        return text;
-      });
-    };
-
-    const result = await runSession(brain, wrapped, {
-      projectId: project.id,
-      kind: kind === 'question' ? 'question' : 'framework',
-      idea: context ? `${question}\n\nContext:\n${context}` : question,
-      routingMode: routingMode || brain.getSetting('routing_mode') || 'balanced',
-      judgeMode: judgeMode || brain.getSetting('judge_mode') || 'synthesis',
-      maxRounds: parseInt(maxRounds || brain.getSetting('max_rounds') || '3', 10),
-      debaters, judges
-    });
-
-    const session = brain.getSession(result.sessionId);
-    let outFile = null;
-    if (project.root_path) {
-      try {
-        const file = session.kind === 'question' ? 'resolution.md' : 'framework.md';
-        outFile = path.join(project.root_path, file);
-        fs.mkdirSync(project.root_path, { recursive: true });
-        fs.writeFileSync(outFile, `# ${file}\n\n${result.verdict}\n`);
-      } catch (_) { outFile = null; }
+  const callModel = hub.bindCallModel(runInWebview, 300000);
+  const emit = (line) => send('council:progress', line);
+  const wrapped = (role, entry, prompt) => serializeSite(entry.site, async () => {
+    emit(`Sending to ${entry.name}${role === 'adversary' ? ' (adversary)' : ''}...`);
+    try {
+      const text = await callModel(role, entry, prompt);
+      emit(`${entry.name} answered (${text.length} chars).`);
+      return text;
+    } catch (e) {
+      emit(`${entry.name} failed: ${e.message}`);
+      throw e;
     }
-    return { ...result, outFile };
-  } finally {
-    running = false;
+  });
+
+  const result = await runSession(brain, wrapped, {
+    projectId: project.id,
+    sessionId: sessionId || undefined,
+    kind: kind === 'question' ? 'question' : 'framework',
+    idea: context ? `${question}\n\nContext:\n${context}` : question,
+    routingMode: routingMode || brain.getSetting('routing_mode') || 'balanced',
+    judgeMode: judgeMode || brain.getSetting('judge_mode') || 'synthesis',
+    maxRounds: parseInt(maxRounds || brain.getSetting('max_rounds') || '3', 10),
+    debaters, judges
+  });
+
+  const session = brain.getSession(result.sessionId);
+  let outFile = null;
+  if (project.root_path) {
+    try {
+      const root = path.resolve(project.root_path);
+      const home = path.resolve(os.homedir());
+      if (root.startsWith(home + path.sep)) { // writes confined to home tree
+        const file = session.kind === 'question' ? 'resolution.md' : 'framework.md';
+        outFile = path.join(root, file);
+        fs.mkdirSync(root, { recursive: true });
+        fs.writeFileSync(outFile, `# ${file}\n\n${result.verdict}\n`);
+      }
+    } catch (_) { outFile = null; }
   }
+  return { ...result, outFile };
+}
+
+// Async job start for MCP ask_council: returns session id immediately.
+function startDebateJob(args) {
+  if (running) return Promise.reject(new Error('a debate is already running'));
+  if (!hub.hasRoster()) return Promise.reject(new Error('assign at least one Debater site in the app first'));
+  const project = activeProject();
+  const judges = hub.roster.filter(r => r.role === 'judge');
+  if (!judges.length) return Promise.reject(new Error('assign a Judge site in the app first'));
+  const sessionId = brain.createSession(
+    project.id,
+    args.kind === 'question' ? 'question' : 'framework',
+    args.context ? `${args.question}\n\nContext:\n${args.context}` : args.question,
+    args.routingMode || brain.getSetting('routing_mode') || 'balanced',
+    args.judgeMode || brain.getSetting('judge_mode') || 'synthesis',
+    parseInt(args.maxRounds || brain.getSetting('max_rounds') || '3', 10)
+  );
+  running = true;
+  askCouncil({ ...args, sessionId })
+    .catch(() => { /* session already marked failed by the engine */ })
+    .finally(() => { running = false; });
+  return Promise.resolve({ sessionId });
 }
 
 function activeProject() {
@@ -124,18 +160,22 @@ ipcMain.handle('council:setRoles', (_e, roster) => {
 });
 
 ipcMain.handle('council:run', async (_e, cfg) => {
+  if (running) return { ok: false, error: 'a debate is already running' };
+  running = true;
   try {
     const r = await askCouncil(cfg);
     return { ok: true, ...r };
   } catch (e) {
     return { ok: false, error: String(e && e.message || e) };
+  } finally {
+    running = false;
   }
 });
 
 ipcMain.handle('council:mcpToggle', async (_e, enabled) => {
   try {
     if (enabled && !httpServer) {
-      httpServer = await startServer({ port: 8765, brain, hub, askCouncil });
+      httpServer = await startServer({ port: 8765, brain, hub, askCouncil, startDebateJob });
       return { ok: true, port: httpServer.port };
     }
     if (!enabled && httpServer) {
@@ -144,7 +184,10 @@ ipcMain.handle('council:mcpToggle', async (_e, enabled) => {
     }
     return { ok: true };
   } catch (e) {
-    return { ok: false, error: String(e && e.message || e) };
+    const msg = /EADDRINUSE/.test(String(e && e.code || e))
+      ? 'port 8765 is busy — is the council-daemon.exe (v3) running? Close it first.'
+      : String(e && e.message || e);
+    return { ok: false, error: msg };
   }
 });
 

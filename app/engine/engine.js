@@ -4,7 +4,10 @@
 // session persistence in the Brain. Transport-agnostic: callModel is
 // injected (real: extension tab commands; tests: fake-browser).
 
-const P = require('../prompts.js');
+// prompts.js lives at the repo root next to the daemon; the app's engine
+// copy keeps it in the same folder — resolve either way.
+let P;
+try { P = require('../prompts.js'); } catch (_) { P = require('./prompts.js'); }
 
 const THRESHOLDS = {
   SKIP_CONFIDENCE: 0.75,   // balanced/aggressive: unanimous + avg >= this -> judge now
@@ -22,12 +25,14 @@ function parseConfidence(text) {
   return Math.min(100, Math.max(0, parseInt(m[1], 10))) / 100;
 }
 
-// Referee output like "Qwen: AGREE\nGLM: DISAGREE" -> per-model map.
+// Referee output like "Qwen: AGREE\nGLM (adversary): DISAGREE" -> per-model map.
+// Role suffixes in parentheses are tolerated (transcripts label adversaries).
 function parseModelAgreement(refereeText, debaters) {
   const perModel = {};
   let sawAny = false;
   for (const d of debaters) {
-    const re = new RegExp(d.name + '\\s*:\\s*(AGREE|DISAGREE)\\b', 'i');
+    const re = new RegExp(d.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') +
+      '(?:\\s*\\([^)]*\\))?\\s*:\\s*(AGREE|DISAGREE)\\b', 'i');
     const m = String(refereeText || '').match(re);
     perModel[d.name] = m ? m[1].toUpperCase() : null;
     if (m) sawAny = true;
@@ -72,10 +77,9 @@ function pickOutlier(debaters, answers, roundIdx) {
 
 async function runSession(brain, callModel, cfg) {
   // cfg: { projectId, kind, idea, routingMode, judgeMode, maxRounds,
-  //        debaters: [{tabId, name, site}], judges: [{tabId, name, site}] }
-  const sessionId = brain.createSession(
-    cfg.projectId, cfg.kind, cfg.idea, cfg.routingMode, cfg.judgeMode, cfg.maxRounds
-  );
+  //        debaters, judges, sessionId? (pre-created for async job starts) }
+  const sessionId = cfg.sessionId ||
+    brain.createSession(cfg.projectId, cfg.kind, cfg.idea, cfg.routingMode, cfg.judgeMode, cfg.maxRounds);
 
   const ask = async (role, entry, prompt) => {
     let lastErr;
@@ -256,7 +260,7 @@ async function judgeEnsemble(mode, judges, chief, brain, userIdeaBlock, transcri
 // Pull structured outcomes out of the verdict markdown into the Brain.
 function extractAndStore(brain, projectId, sessionId, verdict) {
   const section = (name) => {
-    const m = String(verdict).match(new RegExp('##\\s*' + name + '[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)'));
+    const m = String(verdict).match(new RegExp('##\\s*' + name + '[^\\n]*\\n([\\s\\S]*?)(?=\\n##\\s|$)', 'i'));
     return m ? m[1] : '';
   };
   for (const line of section('DISAGREEMENTS RESOLVED').split('\n')) {

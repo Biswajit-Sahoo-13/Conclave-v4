@@ -6,9 +6,10 @@
 const TOOLS = [
   {
     name: 'ask_council',
-    description: 'Run a multi-model AI debate in the user\'s Chrome chat tabs ' +
-      '(Qwen/GLM/Gemini/...) and return the judged final answer. Requires the ' +
-      'AI Council extension to be armed in Chrome.',
+    description: 'Start a multi-model AI debate in the user\'s Chrome chat tabs ' +
+      '(Qwen/GLM/Gemini/...). Returns immediately with a session_id — poll ' +
+      'get_session until status is done/failed. Requires the AI Council ' +
+      'extension to be armed in Chrome.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -18,6 +19,16 @@ const TOOLS = [
                 description: 'framework = new project idea; question = bug/error diagnosis' }
       },
       required: ['question']
+    }
+  },
+  {
+    name: 'get_session',
+    description: 'Poll a debate session started by ask_council. Returns status ' +
+      '(running/done/failed), rounds used, and the verdict markdown when done.',
+    inputSchema: {
+      type: 'object',
+      properties: { session_id: { type: 'number' } },
+      required: ['session_id']
     }
   },
   {
@@ -97,13 +108,29 @@ async function handleMcp(msg, ctx) {
 }
 
 async function dispatch(name, args, ctx) {
-  const { brain, askCouncil, activeProject } = ctx;
+  const { brain, askCouncil, startDebateJob, activeProject } = ctx;
 
   if (name === 'ask_council') {
     if (!args.question) throw new Error('question is required');
-    const r = await askCouncil(args);
-    const where = r.outFile ? `\n\n(written to ${r.outFile})` : '';
-    return `${r.verdict}\n\n---\nsession_id: ${r.sessionId}${where}`;
+    if (!startDebateJob) throw new Error('async jobs not supported by this server');
+    const r = await startDebateJob(args);
+    return `debate started — session_id: ${r.sessionId}\n` +
+      `poll get_session with session_id ${r.sessionId} until status is done or failed.`;
+  }
+
+  if (name === 'get_session') {
+    const s = brain.getSession(args.session_id);
+    if (!s) throw new Error(`session ${args.session_id} not found`);
+    if (s.status === 'done') {
+      return JSON.stringify({
+        session_id: s.id, status: s.status, rounds_used: s.rounds_used,
+        kind: s.kind, verdict: s.verdict
+      }, null, 2);
+    }
+    return JSON.stringify({
+      session_id: s.id, status: s.status, kind: s.kind,
+      error: s.error || undefined
+    }, null, 2);
   }
 
   if (name === 'get_project_state') {

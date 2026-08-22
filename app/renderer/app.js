@@ -16,6 +16,8 @@ const ICONS = {
 };
 
 const $ = (id) => document.getElementById(id);
+// Model output and error strings are untrusted: escape before innerHTML.
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
 let SITES = [];
 const state = {
   activeSite: null,
@@ -37,24 +39,16 @@ const state = {
     btn.innerHTML = `<span class="dot" data-dot></span>${s.name}<span class="role-tag" data-tag></span>`;
     btn.addEventListener('click', () => activateSite(s.site));
     nav.appendChild(btn);
-
-    const wv = document.createElement('webview');
-    wv.src = s.url;
-    wv.partition = 'persist:council';
-    wv.dataset.site = s.site;
-    wv.addEventListener('did-finish-load', () => {
-      state.loaded[s.site] = true;
-      refreshNav();
-    });
-    wv.addEventListener('did-fail-load', () => { state.loaded[s.site] = false; refreshNav(); });
-    views.appendChild(wv);
+    // webview placeholder — created lazily on first activation (M1: 5 eager
+    // chat sites would eat hundreds of MB before the user touches them)
+    views.insertAdjacentHTML('beforeend',
+      `<div class="view-slot" data-slot="${s.site}" style="display:none"></div>`);
   }
   // default roles: first two sites debate, second also judges
   if (SITES.length >= 2) {
     state.roles[SITES[0].site] = 'debater';
     state.roles[SITES[1].site] = 'debater+judge';
   }
-  activateSite(SITES[0] && SITES[0].site);
   refreshNav();
   renderRoles();
   setMode(state.uiMode);
@@ -62,11 +56,33 @@ const state = {
   setInterval(publishRoles, 4000);
 })();
 
+function ensureWebview(site) {
+  let wv = webviewEl(site);
+  if (wv) return wv;
+  const def = SITES.find(s => s.site === site);
+  if (!def) return null;
+  const slot = document.querySelector(`[data-slot="${site}"]`);
+  wv = document.createElement('webview');
+  wv.src = def.url;
+  wv.partition = 'persist:council';
+  wv.dataset.site = site;
+  wv.addEventListener('did-finish-load', () => {
+    state.loaded[site] = true;
+    refreshNav();
+  });
+  wv.addEventListener('did-fail-load', () => { state.loaded[site] = false; refreshNav(); });
+  slot.appendChild(wv);
+  return wv;
+}
+
 function webviewEl(site) { return document.querySelector(`webview[data-site="${site}"]`); }
 
 function activateSite(site) {
   state.activeSite = site;
+  if (site) ensureWebview(site);
   document.querySelectorAll('webview').forEach(w => w.classList.toggle('on', w.dataset.site === site));
+  document.querySelectorAll('.view-slot').forEach(v =>
+    v.style.display = v.dataset.slot === site ? 'block' : 'none');
   document.querySelectorAll('.site-btn').forEach(b => b.classList.toggle('on', b.dataset.site === site));
 }
 
@@ -104,7 +120,7 @@ function rosterFromState() {
   const out = [];
   for (const s of SITES) {
     const r = state.roles[s.site];
-    const wv = webviewEl(s.site);
+    const wv = webviewEl(s.site); // lazy: only sites the user has opened
     if (!r || !wv) continue;
     const contentsId = wv.getWebContentsId ? wv.getWebContentsId() : null;
     if (r.includes('debater')) out.push({ site: s.site, name: s.name, role: 'debater', contentsId });
@@ -136,8 +152,11 @@ function refreshSimpleReady() {
   const judges = roster.filter(r => r.role === 'judge');
   const ready = $('simpleReady');
   if (debaters.length >= 1 && judges.length >= 1) {
-    ready.innerHTML = `<span class="dot ok"></span> ${debaters.map(d => d.name).join(' + ')} ready — ${judges[0].name} will judge`;
+    ready.innerHTML = `<span class="dot ok"></span> ${esc(debaters.map(d => d.name).join(' + '))} ready — ${esc(judges[0].name)} will judge`;
     $('simpleStart').disabled = state.running;
+  } else if (Object.values(state.roles).some(Boolean)) {
+    ready.innerHTML = `<span class="dot"></span> Roles assigned — open each assigned chat tab in the sidebar once so it can load`;
+    $('simpleStart').disabled = true;
   } else {
     ready.innerHTML = `<span class="dot"></span> Assign a Debater and a Judge in Advanced (sidebar roles)`;
     $('simpleStart').disabled = true;
@@ -207,8 +226,8 @@ function showResult(verdict, outFile) {
   const card = $('resultCard');
   card.innerHTML =
     `<div class="head">${ICONS.check} Debate finished — framework ready</div>` +
-    `<div class="preview">${(verdict || '').slice(0, 600)}${(verdict || '').length > 600 ? '…' : ''}</div>` +
-    (outFile ? `<div class="actions">Saved to ${outFile}</div>` : `<div class="actions">Saved to the Project Brain (see Advanced)</div>`);
+    `<div class="preview">${esc((verdict || '').slice(0, 600))}${(verdict || '').length > 600 ? '…' : ''}</div>` +
+    (outFile ? `<div class="actions">Saved to ${esc(outFile)}</div>` : `<div class="actions">Saved to the Project Brain (see Advanced)</div>`);
   card.style.display = 'block';
 }
 
@@ -216,7 +235,7 @@ function showError(message) {
   const card = $('errorCard');
   card.innerHTML =
     `<div class="head">${ICONS.alert} The debate couldn't finish</div>` +
-    `<div class="preview">${message}</div>` +
+    `<div class="preview">${esc(message)}</div>` +
     `<div class="actions"><button id="btnRetry">${ICONS.retry} Try again</button></div>`;
   card.style.display = 'block';
   $('btnRetry').addEventListener('click', startSimple);

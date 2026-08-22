@@ -27,7 +27,7 @@ class WebviewHub {
   }
 }
 
-function startServer({ port = 8765, brain, hub, askCouncil, onProgress }) {
+function startServer({ port = 8765, brain, hub, askCouncil, startDebateJob }) {
   const activeProject = () => {
     const name = brain.getSetting('active_project') || 'default';
     return brain.getProjectByName(name) || brain.upsertProject(name, null);
@@ -43,15 +43,31 @@ function startServer({ port = 8765, brain, hub, askCouncil, onProgress }) {
     req.on('end', () => { try { resolve(buf ? JSON.parse(buf) : {}); } catch (e) { reject(e); } });
   });
 
+  // Drive-by defense (same policy as the daemon): Host must be the literal
+  // loopback address+port (kills DNS rebinding); cross-origin browser
+  // requests must come from a chrome-extension:// origin. Local tools
+  // (Antigravity's MCP client, curl) send no Origin header and pass.
+  let boundPort = 0;
+  const requestBlocked = (req) => {
+    const host = String(req.headers.host || '');
+    const allowed = new Set([`127.0.0.1:${boundPort}`, `localhost:${boundPort}`]);
+    if (host && !allowed.has(host.toLowerCase())) return 'bad host';
+    const origin = req.headers.origin;
+    if (origin && !String(origin).startsWith('chrome-extension://')) return 'bad origin';
+    return null;
+  };
+
   const server = http.createServer(async (req, res) => {
     try {
+      const blocked = requestBlocked(req);
+      if (blocked) return json(res, 403, { ok: false, error: `forbidden: ${blocked}` });
       const url = new URL(req.url, 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/status') {
         return json(res, 200, { ok: true, roster: hub.roster, project: activeProject().name });
       }
       if (req.method === 'POST' && url.pathname === '/mcp') {
         const body = await readBody(req);
-        const rpc = await handleMcp(body, { brain, askCouncil, activeProject, hub });
+        const rpc = await handleMcp(body, { brain, askCouncil, startDebateJob, activeProject, hub });
         return json(res, 200, rpc);
       }
       if (req.method === 'POST' && url.pathname === '/api/project') {
@@ -94,8 +110,10 @@ function startServer({ port = 8765, brain, hub, askCouncil, onProgress }) {
   });
 
   return new Promise((resolve) => {
-    server.listen(port, '127.0.0.1', () =>
-      resolve({ server, port: server.address().port, close: () => new Promise(r => server.close(r)) }));
+    server.listen(port, '127.0.0.1', () => {
+      boundPort = server.address().port;
+      resolve({ server, port: boundPort, close: () => new Promise(r => server.close(r)) });
+    });
   });
 }
 
