@@ -4,7 +4,10 @@
 // session persistence in the Brain. Transport-agnostic: callModel is
 // injected (real: extension tab commands; tests: fake-browser).
 
-const P = require('../prompts.js');
+// prompts.js lives at the repo root next to the daemon; the app's engine
+// copy keeps it in the same folder — resolve either way.
+let P;
+try { P = require('../prompts.js'); } catch (_) { P = require('./prompts.js'); }
 
 const THRESHOLDS = {
   SKIP_CONFIDENCE: 0.75,   // balanced/aggressive: unanimous + avg >= this -> judge now
