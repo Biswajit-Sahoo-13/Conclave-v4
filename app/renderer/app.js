@@ -12,8 +12,23 @@ const ICONS = {
   check: svg(`<polyline points="20 6 9 17 4 12"/>`),
   alert: svg(`<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>`),
   open: svg(`<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>`),
-  retry: svg(`<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>`)
+  retry: svg(`<polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>`),
+  x: svg(`<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>`),
+  sun: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>`,
+  moon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
 };
+
+// ---- theme (dark default, light variant, persisted) ----
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  $('themeToggle').innerHTML = theme === 'light' ? ICONS.moon : ICONS.sun;
+}
+applyTheme(localStorage.getItem('uiTheme') === 'light' ? 'light' : 'dark');
+$('themeToggle').addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+  applyTheme(next);
+  localStorage.setItem('uiTheme', next);
+});
 
 const $ = (id) => document.getElementById(id);
 // Model output and error strings are untrusted: escape before innerHTML.
@@ -265,8 +280,8 @@ async function refreshState() {
   $('projName').value = st.project.name === 'default' ? '' : st.project.name;
   $('projRoot').value = st.project.rootPath || '';
   $('sessions').innerHTML = st.sessions.length
-    ? st.sessions.map(s => `<div>#${s.id} ${s.kind} — ${s.status}
-        ${s.status === 'done' ? `<button class="fb" data-id="${s.id}" data-ok="1">✓</button><button class="fb" data-id="${s.id}" data-ok="0">✗</button>` : ''}
+    ? st.sessions.map(s => `<div>#${s.id} ${esc(s.kind)} — ${esc(s.status)}
+        ${s.status === 'done' ? `<button class="fb" data-id="${s.id}" data-ok="1" title="Accept verdict">${ICONS.check}</button><button class="fb" data-id="${s.id}" data-ok="0" title="Reject verdict">${ICONS.x}</button>` : ''}
       </div>`).join('')
     : '<div>No sessions yet.</div>';
   $('sessions').querySelectorAll('.fb').forEach(b => b.addEventListener('click', async () => {
