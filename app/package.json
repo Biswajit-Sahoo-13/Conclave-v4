@@ -1,0 +1,29 @@
+{
+  "name": "ai-council-app",
+  "productName": "AI Council",
+  "version": "4.0.0",
+  "description": "All-in-one multi-model debate chamber — your AI chats in one app with a judged council.",
+  "main": "main.js",
+  "author": "Biswajit-Sahoo-13",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "^37.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "com.biswajit.aicouncil",
+    "productName": "AI Council",
+    "win": { "target": "nsis" },
+    "nsis": {
+      "oneClick": true,
+      "createStartMenuShortcut": true
+    },
+    "files": [
+      "main.js", "preload.js", "automation.js", "server-lite.js", "engine/**", "renderer/**"
+    ]
+  }
+}

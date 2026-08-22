@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>AI Council</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="shell">
+    <aside id="sidebar">
+      <div class="brand">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="3" x2="12" y2="21"/><line x1="5" y1="7" x2="19" y2="7"/><path d="M5 7l-2.5 6a3 3 0 0 0 5 0L5 7z"/><path d="M19 7l-2.5 6a3 3 0 0 0 5 0L19 7z"/></svg>
+        AI Council
+      </div>
+      <nav id="siteNav"></nav>
+      <div class="side-foot">
+        <button id="mcpBtn" class="ghost">MCP: off</button>
+      </div>
+    </aside>
+
+    <main id="stage">
+      <!-- chat webviews (one per site, toggled) -->
+      <div id="views"></div>
+
+      <!-- control panel -->
+      <section id="panel">
+        <div class="mode-switch">
+          <button id="modeSimple" class="on">Simple</button>
+          <button id="modeAdvanced">Advanced</button>
+        </div>
+
+        <!-- SIMPLE -->
+        <div id="simpleView">
+          <div class="label">What do you want to build?</div>
+          <textarea id="simpleIdea" placeholder="Describe your idea in plain words — the council will debate it and hand you a framework…"></textarea>
+          <div class="ready-line" id="simpleReady"></div>
+          <button class="btn-start" id="simpleStart">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            START THE DEBATE
+          </button>
+          <div id="timeline"></div>
+          <div class="card result" id="resultCard"></div>
+          <div class="card error" id="errorCard"></div>
+        </div>
+
+        <!-- ADVANCED -->
+        <div id="advancedView" style="display:none">
+          <h3>Roles</h3>
+          <div id="rolesList"></div>
+          <h3>Engine</h3>
+          <div class="row">
+            <label>Rounds <input id="rounds" type="number" min="1" max="6" value="3"></label>
+            <label>Routing
+              <select id="routingMode">
+                <option value="conservative">Conservative</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
+            </label>
+            <label>Judges
+              <select id="judgeMode">
+                <option value="single">Single</option>
+                <option value="synthesis" selected>Synthesis</option>
+                <option value="panel">Panel</option>
+                <option value="weighted">Weighted</option>
+              </select>
+            </label>
+          </div>
+          <h3>Project</h3>
+          <div class="row">
+            <input id="projName" placeholder="Project name" style="flex:1">
+            <input id="projRoot" placeholder="Output folder (optional)" style="flex:1">
+            <button id="saveProject" class="ghost">Save</button>
+          </div>
+          <h3>Sessions</h3>
+          <div id="sessions" class="sessions"></div>
+          <div id="brainState" class="brain-state"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
