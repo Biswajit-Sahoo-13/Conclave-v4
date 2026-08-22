@@ -118,16 +118,18 @@
   function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
   // Waits until the newest assistant message stops growing, indicating the
-  // response finished streaming. Returns its text.
+  // response finished streaming. Returns its text. The stability window
+  // widens for long responses: thinking models can pause >6s mid-stream,
+  // which would otherwise look "done" (false completion).
   async function waitForResponse(timeoutMs = 240000) {
     const started = Date.now();
     const before = getLastAssistantText(); // response that existed before send
     let lastLen = before ? before.length : 0;
     let stableCount = 0;
-    const STABLE_NEEDED = 8; // 8 * 750ms with no growth = done
 
     while (Date.now() - started < timeoutMs) {
       await sleep(750);
+      const stableNeeded = (Date.now() - started) > 90000 ? 14 : 8;
       const cur = getLastAssistantText();
       const curLen = cur ? cur.length : 0;
       if (curLen > lastLen) {
@@ -135,7 +137,7 @@
         stableCount = 0;
       } else if (curLen === lastLen && curLen > 0 && cur !== before) {
         stableCount++;
-        if (stableCount >= STABLE_NEEDED) return cur;
+        if (stableCount >= stableNeeded) return cur;
       } else {
         stableCount = 0;
       }

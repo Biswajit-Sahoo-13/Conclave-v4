@@ -99,7 +99,7 @@ test('e2e: MCP ask_council through the full loop', async (t) => {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })
   });
-  assert.strictEqual(tools.result.tools.length, 4);
+  assert.strictEqual(tools.result.tools.length, 5);
 
   const called = await j(`http://127.0.0.1:${inst.port}/mcp`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -108,14 +108,37 @@ test('e2e: MCP ask_council through the full loop', async (t) => {
       params: { name: 'ask_council', arguments: { question: 'Design a CLI tool', kind: 'framework' } }
     })
   });
-  assert.ok(called.result.content[0].text.includes('merged final'), 'meta verdict returned');
-  const sessionId = parseInt((called.result.content[0].text.match(/session_id: (\d+)/) || [])[1], 10);
-  assert.ok(sessionId >= 1);
+  // ask_council is now an async job: returns session_id, poll get_session
+  const started = called.result.content[0].text;
+  const sessionId = parseInt((started.match(/session_id: (\d+)/) || [])[1], 10);
+  assert.ok(sessionId >= 1, 'ask_council returned a session id');
+
+  let verdictText = '';
+  for (let i = 0; i < 100; i++) {
+    await new Promise(r => setTimeout(r, 25));
+    const poll = await j(`http://127.0.0.1:${inst.port}/mcp`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 100 + i, method: 'tools/call',
+        params: { name: 'get_session', arguments: { session_id: sessionId } } })
+    });
+    const state = JSON.parse(poll.result.content[0].text);
+    if (state.status === 'done') { verdictText = state.verdict; break; }
+    assert.strictEqual(state.status, 'running', `unexpected status ${state.status}`);
+  }
+  assert.ok(verdictText.includes('merged final'), 'meta verdict returned via get_session');
 
   // framework.md written into the project root
   const fw = path.join(dir, 'proj', 'framework.md');
   assert.ok(fs.existsSync(fw), 'framework.md written');
   assert.ok(fs.readFileSync(fw, 'utf8').includes('merged final'));
+
+  // drive-by defense: web origins are rejected, wrong Host is rejected
+  const evil = await fetch(`http://127.0.0.1:${inst.port}/agent/poll`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', 'Origin': 'https://evil.example' },
+    body: JSON.stringify({ agentId: 'evil', roster: [{ site: 'x', role: 'debater' }] })
+  });
+  assert.strictEqual(evil.status, 403, 'cross-origin browser request blocked');
 
   // Brain captured decisions + open questions from the verdict
   const state = await j(`http://127.0.0.1:${inst.port}/mcp`, {

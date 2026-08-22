@@ -43,6 +43,11 @@ test('parseModelAgreement maps statuses', () => {
   assert.strictEqual(r.perModel.GLM, 'DISAGREE');
   assert.strictEqual(r.groupAgree, false);
 });
+test('parseModelAgreement tolerates adversary role suffixes', () => {
+  const r = parseModelAgreement('Qwen: AGREE\nGLM (adversary): agree', DEBATERS);
+  assert.strictEqual(r.perModel.GLM, 'AGREE');
+  assert.strictEqual(r.groupAgree, true);
+});
 test('parseModelAgreement group agree', () => {
   const r = parseModelAgreement('Qwen: AGREE\nGLM: agree', DEBATERS);
   assert.strictEqual(r.groupAgree, true);
@@ -206,6 +211,37 @@ test('verdict sections are extracted into decisions and open questions', async (
   assert.strictEqual(qs.length, 2);
   const s = brain.getSession(r.sessionId);
   assert.strictEqual(s.status, 'done');
+});
+
+test('section parser is case-insensitive (models rewrite headings)', async () => {
+  const brain = new Brain(':memory:');
+  const project = brain.upsertProject('p', null);
+  const fb = createFakeBrowser((role) => {
+    if (role === 'referee') return 'Qwen: AGREE\nGLM: AGREE';
+    if (role === 'meta') return '## verdict\nv\n\n## disagreements resolved\n- db -> SQLite\n\n## open questions\n- deploy?';
+    return 'Answer. CONFIDENCE: 90%';
+  });
+  await runSession(brain, fb.callModel, baseCfg({ projectId: project.id }));
+  assert.strictEqual(brain.decisionsForProject(project.id)[0].decision, 'SQLite');
+  assert.strictEqual(brain.openQuestionsForProject(project.id).length, 1);
+});
+
+test('fed-forward transcripts are fenced as untrusted data', async () => {
+  const brain = new Brain(':memory:');
+  brain.upsertProject('p', null);
+  let seenPrompt = '';
+  const fb = createFakeBrowser((role, entry, prompt) => {
+    if (role !== 'referee' && role !== 'digest' && role !== 'judge' && role !== 'meta') {
+      seenPrompt = prompt;
+      return 'Answer. CONFIDENCE: 40%';
+    }
+    if (role === 'referee') return 'Qwen: DISAGREE\nGLM: DISAGREE';
+    if (role === 'meta') return '## VERDICT\nv';
+    return 'x';
+  });
+  await runSession(brain, fb.callModel, baseCfg({ maxRounds: 2 }));
+  assert.ok(seenPrompt.includes('UNTRUSTED MODEL OUTPUT'),
+    'round>=2 prompts must fence model output');
 });
 
 test('failed session is marked failed with error', async () => {

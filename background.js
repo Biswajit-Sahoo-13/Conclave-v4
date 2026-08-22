@@ -19,6 +19,8 @@ importScripts("prompts.js");
 
 // ---------------- tab messaging ----------------
 
+const lastTextByTab = {}; // tabId -> last successfully extracted text
+
 function sendMessage(tabId, msg) {
   return new Promise((resolve) => {
     chrome.tabs.sendMessage(tabId, msg, (res) => {
@@ -31,12 +33,24 @@ function sendMessage(tabId, msg) {
   });
 }
 
+// Extract-before-resend: on failure, first try GET_LAST — if the model DID
+// answer but extraction raced (selector drift, slow DOM), we accept the new
+// text instead of typing the prompt a second time into the chat.
 async function sendAndWait(tabId, prompt, timeoutMs, label, report) {
   const attempts = 2;
   for (let i = 1; i <= attempts; i++) {
     const res = await sendMessage(tabId, { type: "SEND_AND_WAIT", prompt, timeoutMs });
-    if (res.ok) return res;
+    if (res.ok) {
+      lastTextByTab[tabId] = res.text;
+      return res;
+    }
     if (i < attempts) {
+      const rescue = await sendMessage(tabId, { type: "GET_LAST" });
+      if (rescue.ok && rescue.text && rescue.text !== lastTextByTab[tabId]) {
+        report(`${label}: extraction recovered without re-sending the prompt.`);
+        lastTextByTab[tabId] = rescue.text;
+        return { ok: true, text: rescue.text };
+      }
       report(`${label} failed (${res.error}) — retrying once in 5s...`);
       await new Promise(r => setTimeout(r, 5000));
     } else {
@@ -172,14 +186,13 @@ async function runQuestion(config) {
 }
 
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  if (msg.type === "START_DEBATE") {
-    runDebate(msg.config)
-      .then(r => sendResponse(r))
-      .catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
-    return true;
-  }
-  if (msg.type === "START_QUESTION") {
-    runQuestion(msg.config)
+  if (msg.type === "START_DEBATE" || msg.type === "START_QUESTION") {
+    if (agentInFlight) {
+      sendResponse({ ok: false, error: "a daemon-driven command is using the chat tabs — try again when it finishes" });
+      return false;
+    }
+    const run = msg.type === "START_DEBATE" ? runDebate : runQuestion;
+    run(msg.config)
       .then(r => sendResponse(r))
       .catch(e => sendResponse({ ok: false, error: String(e.message || e) }));
     return true;
@@ -196,9 +209,33 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 const DAEMON = "http://127.0.0.1:8765";
 const AGENT_ID = "ext-" + Math.random().toString(36).slice(2, 10);
 let agentRunning = false;
+let agentInFlight = false; // a daemon-driven tab command is executing
 
 async function getStored(key) {
   return new Promise((resolve) => chrome.storage.local.get(key, (o) => resolve(o[key])));
+}
+
+// Keep the daemon roster honest: when a chat tab closes, prune it so the
+// daemon stops dispatching commands to dead tabs; if a replacement tab for
+// the same site exists, rebind to it.
+async function refreshRosterAfterTabLoss(closedTabId) {
+  const roster = (await getStored("daemonRoster")) || [];
+  if (!roster.some(r => r.tabId === closedTabId)) return;
+  const next = [];
+  for (const entry of roster) {
+    if (entry.tabId === closedTabId) {
+      const tabs = await chrome.tabs.query({ url: `https://${entry.site}/*` }).catch(() => []);
+      const replacement = tabs.find(t => t.id !== closedTabId);
+      if (replacement) next.push({ ...entry, tabId: replacement.id });
+    } else {
+      next.push(entry);
+    }
+  }
+  chrome.storage.local.set({ daemonRoster: next });
+}
+
+if (chrome.tabs.onRemoved) {
+  chrome.tabs.onRemoved.addListener((tabId) => { refreshRosterAfterTabLoss(tabId); });
 }
 
 async function postJson(path, body) {
@@ -212,28 +249,66 @@ async function postJson(path, body) {
 }
 
 async function executeCommand(cmd) {
+  // cross-mode lock: never drive a tab from the daemon while a local
+  // debate is using the same tabs, and never two commands at once
+  if (running) {
+    return postJson("/agent/result", {
+      callId: cmd.callId, ok: false,
+      error: "a local debate is running in the extension — wait for it to finish"
+    });
+  }
   // roster entries carry the tabId to use for each site
   const roster = (await getStored("daemonRoster")) || [];
-  const entry = roster.find(r => r.site === cmd.site);
+  let entry = roster.find(r => r.site === cmd.site);
+  if (entry) {
+    const alive = await chrome.tabs.get(entry.tabId).then(() => true, () => false);
+    if (!alive) {
+      const tabs = await chrome.tabs.query({ url: `https://${cmd.site}/*` }).catch(() => []);
+      const replacement = tabs[0];
+      if (replacement) {
+        entry = { ...entry, tabId: replacement.id };
+        chrome.storage.local.set({ daemonRoster: roster.map(r => r.site === cmd.site ? entry : r) });
+      }
+    }
+  }
   if (!entry) {
     return postJson("/agent/result", {
       callId: cmd.callId, ok: false, error: `no roster tab for site ${cmd.site}`
     });
   }
-  // make sure the content script is present (tab may predate install)
-  await chrome.scripting.executeScript({
-    target: { tabId: entry.tabId }, files: ["sites.js", "content.js"]
-  }).catch(() => {});
-  chrome.tabs.sendMessage(
-    entry.tabId,
-    { type: "SEND_AND_WAIT", prompt: cmd.prompt, timeoutMs: 280000 },
-    (res) => {
-      const out = (!res || !res.ok)
-        ? { callId: cmd.callId, ok: false, error: (res && res.error) || "tab command failed" }
-        : { callId: cmd.callId, ok: true, text: res.text };
-      postJson("/agent/result", out).catch(() => {});
+  agentInFlight = true;
+  try {
+    if (cmd.op === "extract") {
+      // daemon-side rescue: return the last assistant text without sending
+      await chrome.scripting.executeScript({
+        target: { tabId: entry.tabId }, files: ["sites.js", "content.js"]
+      }).catch(() => {});
+      chrome.tabs.sendMessage(entry.tabId, { type: "GET_LAST" }, (res) => {
+        const out = (!res || !res.ok)
+          ? { callId: cmd.callId, ok: false, error: (res && res.error) || "extract failed" }
+          : { callId: cmd.callId, ok: true, text: res.text };
+        postJson("/agent/result", out).catch(() => {});
+      });
+      return;
     }
-  );
+    // make sure the content script is present (tab may predate install)
+    await chrome.scripting.executeScript({
+      target: { tabId: entry.tabId }, files: ["sites.js", "content.js"]
+    }).catch(() => {});
+    chrome.tabs.sendMessage(
+      entry.tabId,
+      { type: "SEND_AND_WAIT", prompt: cmd.prompt, timeoutMs: 280000 },
+      (res) => {
+        const out = (!res || !res.ok)
+          ? { callId: cmd.callId, ok: false, error: (res && res.error) || "tab command failed" }
+          : { callId: cmd.callId, ok: true, text: res.text };
+        if (res && res.ok) lastTextByTab[entry.tabId] = res.text;
+        postJson("/agent/result", out).catch(() => {});
+      }
+    );
+  } finally {
+    agentInFlight = false;
+  }
 }
 
 async function agentTick() {

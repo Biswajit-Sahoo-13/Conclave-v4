@@ -62,20 +62,43 @@ async function scanTabs() {
   renderSimpleChrome();
 }
 
+// Role selections survive the 3s tab rescans: keyed by tabId, re-applied on
+// every re-render (a rebuild used to wipe the user's checkboxes).
+const roleState = {}; // tabId -> {debate: bool, judge: bool}
+let lastTabKey = "";
+
 function renderTabs() {
+  const tabKey = chatTabs.map(t => t.tabId).join(",");
+  if (tabKey === lastTabKey && tabsEl.children.length) return; // nothing changed
+  lastTabKey = tabKey;
   if (!chatTabs.length) {
     tabsEl.innerHTML = "No supported chat tabs found. Open chat.qwen.ai / chat.z.ai / etc. first.";
     return;
   }
   tabsEl.innerHTML =
     "<div class='tab-row'><b>Tab</b>&nbsp;&nbsp;<span class='role'>Debaters</span>&nbsp;&nbsp;<span class='role'>Judge</span></div>" +
-    chatTabs.map((t, i) => `
+    chatTabs.map((t, i) => {
+      const st = roleState[t.tabId] || {};
+      return `
       <div class="tab-row">
         <span style="flex:1">${esc(t.name)} — ${esc(t.title)}</span>
-        <label><input type="checkbox" data-debate="${i}"></label>
-        <label><input type="radio" name="judge" data-judge="${i}"></label>
-      </div>`).join("");
+        <label><input type="checkbox" data-debate="${i}" data-tabid="${t.tabId}" ${st.debate ? "checked" : ""}></label>
+        <label><input type="radio" name="judge" data-judge="${i}" data-tabid="${t.tabId}" ${st.judge ? "checked" : ""}></label>
+      </div>`;
+    }).join("");
 }
+
+tabsEl.addEventListener("change", (e) => {
+  const tabId = parseInt(e.target.dataset.tabid, 10);
+  if (isNaN(tabId)) return;
+  const st = roleState[tabId] || (roleState[tabId] = {});
+  if (e.target.dataset.debate !== undefined) st.debate = e.target.checked;
+  if (e.target.dataset.judge !== undefined) {
+    // radio: clear judge flag on all other tabs
+    for (const k of Object.keys(roleState)) roleState[k].judge = false;
+    st.judge = e.target.checked;
+  }
+});
 
 // ============================================================
 // Mode switching
@@ -160,6 +183,7 @@ const bubblesByName = {}; // "GLM" -> element currently "thinking"
 function showTimeline() {
   timelineEl.style.display = "block";
   timelineEl.innerHTML = "";
+  processedLogLines = 0; // new debate: reset the dedup cursor
   $("resultCard").style.display = "none";
   $("errorCard").style.display = "none";
 }
@@ -367,11 +391,14 @@ async function start(type) {
   });
 }
 
-// Live progress updates from the background worker
+// Live progress updates from the background worker. The log arrives as a
+// growing array — process only NEW lines or the timeline would duplicate.
+let processedLogLines = 0;
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "PROGRESS") {
     if (uiMode === "simple" && timelineEl.style.display !== "none") {
-      msg.log.forEach(tlTranslate);
+      msg.log.slice(processedLogLines).forEach(tlTranslate);
+      processedLogLines = msg.log.length;
     } else {
       showStatus(msg.log.join("\n"));
     }
