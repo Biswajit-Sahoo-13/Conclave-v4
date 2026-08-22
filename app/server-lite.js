@@ -109,7 +109,10 @@ function startServer({ port = 8765, brain, hub, askCouncil, startDebateJob }) {
     }
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // surface listen failures (e.g. EADDRINUSE) through the promise instead
+    // of leaking an unhandled 'error' event into the main process
+    server.on('error', reject);
     server.listen(port, '127.0.0.1', () => {
       boundPort = server.address().port;
       resolve({ server, port: boundPort, close: () => new Promise(r => server.close(r)) });

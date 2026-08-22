@@ -39,6 +39,9 @@ const ICONS = {
   moon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
 };
 
+// DOM helper must precede top-level uses ($("themeToggle") below).
+const $ = (id) => document.getElementById(id);
+
 // ---- theme (dark default, light variant, persisted) ----
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -54,7 +57,6 @@ $("themeToggle").addEventListener("click", async () => {
   chrome.storage.local.set({ uiTheme: next }).catch(() => {});
 });
 
-const $ = (id) => document.getElementById(id);
 const tabsEl = $("tabs");
 const statusEl = $("status");
 const chatTabs = []; // {tabId, name, title}

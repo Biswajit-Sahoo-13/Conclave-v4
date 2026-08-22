@@ -8,6 +8,11 @@ const { SITE_CONFIGS } = require('./engine/sites.js');
 
 // Everything below runs INSIDE the chat page.
 const PAGE_FN = function (cfg, prompt, timeoutMs) {
+  // generation token: when a newer call starts on this page, any still-running
+  // older poller (its caller already timed out) stops itself
+  window.__conclaveGen = (window.__conclaveGen || 0) + 1;
+  const myGen = window.__conclaveGen;
+  const stale = () => window.__conclaveGen !== myGen;
   const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
   function firstMatch(selectors) {
@@ -82,6 +87,7 @@ const PAGE_FN = function (cfg, prompt, timeoutMs) {
     let lastLen = before ? before.length : 0, stable = 0;
     const started = Date.now();
     while (Date.now() - started < (timeoutMs || 240000)) {
+      if (stale()) throw new Error('superseded by a newer automation call on this tab');
       await sleep(750);
       const cur = getLastAssistantText();
       const len = cur ? cur.length : 0;

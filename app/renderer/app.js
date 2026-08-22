@@ -18,6 +18,12 @@ const ICONS = {
   moon: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>`
 };
 
+// DOM helpers MUST precede any top-level code that uses them ($ is called
+// immediately below by applyTheme).
+const $ = (id) => document.getElementById(id);
+// Model output and error strings are untrusted: escape before innerHTML.
+function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
+
 // ---- theme (dark default, light variant, persisted) ----
 function applyTheme(theme) {
   document.documentElement.dataset.theme = theme;
@@ -30,9 +36,6 @@ $('themeToggle').addEventListener('click', () => {
   localStorage.setItem('uiTheme', next);
 });
 
-const $ = (id) => document.getElementById(id);
-// Model output and error strings are untrusted: escape before innerHTML.
-function esc(s) { const d = document.createElement('div'); d.textContent = String(s ?? ''); return d.innerHTML; }
 let SITES = [];
 const state = {
   activeSite: null,
@@ -186,11 +189,11 @@ function showTimeline() {
   $('errorCard').style.display = 'none';
 }
 function scrollTl() { $('timeline').scrollTop = $('timeline').scrollHeight; }
-function tlDivider(t) { $('timeline').insertAdjacentHTML('beforeend', `<div class="tl-divider">${t}</div>`); scrollTl(); }
+function tlDivider(t) { $('timeline').insertAdjacentHTML('beforeend', `<div class="tl-divider">${esc(t)}</div>`); scrollTl(); }
 function tlBubble(kind, iconKey, text) {
   const id = 'tl' + Math.random().toString(36).slice(2, 8);
   $('timeline').insertAdjacentHTML('beforeend',
-    `<div class="tl-item ${kind}" id="${id}"><span class="ic spin">${ICONS[iconKey]}</span><span class="tx">${text}</span></div>`);
+    `<div class="tl-item ${esc(kind)}" id="${id}"><span class="ic spin">${ICONS[iconKey] || ''}</span><span class="tx">${esc(text)}</span></div>`);
   scrollTl();
   return document.getElementById(id);
 }
