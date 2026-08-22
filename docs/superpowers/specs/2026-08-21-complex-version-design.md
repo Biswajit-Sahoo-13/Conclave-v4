@@ -1,4 +1,4 @@
-# AI Council v1 "Complex" — Design Spec
+# Conclave v1 "Complex" — Design Spec
 
 - Date: 2026-08-21
 - Branch: `v1-complex-high-features`
@@ -6,7 +6,7 @@
 
 ## 1. Goal
 
-Upgrade AI Council from a standalone Chrome extension (v0.2) to a two-part
+Upgrade Conclave from a standalone Chrome extension (v0.2) to a two-part
 system: a local Node.js **council daemon** owning a real SQLite **Project
 Brain**, an **adaptive routing** debate engine, a **multi-judge ensemble**,
 and an **MCP server** that lets Antigravity run debates automatically.
@@ -192,7 +192,7 @@ dispatching tab commands to the extension (timeout 5 min per model call;
 overall 20 min) → store messages/verdict/decisions → also write
 `framework.md` or `resolution.md` into the project `root_path` if set.
 If the extension is not polling (Chrome closed), return JSON-RPC error with
-message "open Chrome with the AI Council extension".
+message "open Chrome with the Conclave extension".
 
 ## 8. Extension changes
 

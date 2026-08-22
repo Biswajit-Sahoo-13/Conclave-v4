@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "AI Council — Multi-Model Debate",
+  "name": "Conclave — Multi-Model Debate",
   "version": "1.1.0",
   "description": "Send an idea to your open AI chat tabs, make them critique each other, and let a judge model produce the final framework. Daemon mode adds the Project Brain + MCP.",
   "permissions": ["tabs", "scripting", "downloads", "storage"],
@@ -14,7 +14,7 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "AI Council"
+    "default_title": "Conclave"
   },
   "background": {
     "service_worker": "background.js"

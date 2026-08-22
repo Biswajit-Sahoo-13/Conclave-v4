@@ -59,7 +59,7 @@ class AgentHub {
     if (this.current) return Promise.reject(new Error('another model call is in flight'));
     if (!this.hasRoster()) {
       return Promise.reject(new Error(
-        'open Chrome with the AI Council extension and arm Daemon mode (roster empty)'));
+        'open Chrome with the Conclave extension and arm Daemon mode (roster empty)'));
     }
     return this._dispatch(
       { op: 'send_and_wait', role, site: entry.site, prompt }, CALL_TIMEOUT_MS);
@@ -98,7 +98,7 @@ function startServer({ port = 0, dbPath } = {}) {
       fs.mkdirSync(root, { recursive: true });
       const target = path.join(root, file);
       fs.writeFileSync(target,
-        `# ${file === 'framework.md' ? 'Project Framework' : 'Resolution'} — AI Council\n\n` +
+        `# ${file === 'framework.md' ? 'Project Framework' : 'Resolution'} — Conclave\n\n` +
         `- Session: ${session.id}  Rounds: ${session.rounds_used}\n` +
         `- Routing: ${session.routing_mode}  Judges: ${session.judge_mode}\n\n${verdict}\n`);
       return target;
@@ -127,7 +127,7 @@ function startServer({ port = 0, dbPath } = {}) {
 
   async function askCouncil({ question, context, kind, routingMode, judgeMode, maxRounds, sessionId }) {
     if (!hub.hasRoster()) {
-      throw new Error('open Chrome with the AI Council extension and arm Daemon mode (roster empty)');
+      throw new Error('open Chrome with the Conclave extension and arm Daemon mode (roster empty)');
     }
     const project = activeProject();
     const roster = hub.roster;
@@ -157,7 +157,7 @@ function startServer({ port = 0, dbPath } = {}) {
   // that prefer to block (curl) can keep using /api/debate.
   async function startDebateJob(args) {
     if (jobRunning) throw new Error('a debate is already running');
-    if (!hub.hasRoster()) throw new Error('open Chrome with the AI Council extension and arm Daemon mode (roster empty)');
+    if (!hub.hasRoster()) throw new Error('open Chrome with the Conclave extension and arm Daemon mode (roster empty)');
     const project = activeProject();
     const judges = hub.roster.filter(r => r.role === 'judge');
     if (!judges.length) throw new Error('no judge selected — check a Judge tab in the extension popup, then re-arm');
@@ -305,7 +305,7 @@ module.exports = { startServer, AgentHub };
 
 if (require.main === module) {
   startServer({ port: 8765 }).then(({ port }) => {
-    console.log(`AI Council daemon listening on http://127.0.0.1:${port}`);
+    console.log(`Conclave daemon listening on http://127.0.0.1:${port}`);
     console.log(`MCP endpoint: http://127.0.0.1:${port}/mcp   Brain: ~/.ai-council/council.db`);
   }).catch(e => { console.error(e); process.exit(1); });
 }

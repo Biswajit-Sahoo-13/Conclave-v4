@@ -1,4 +1,4 @@
-# AI Council — Simple/Advanced UX Design Spec
+# Conclave — Simple/Advanced UX Design Spec
 
 - Date: 2026-08-22
 - Branch: `v1-complex-high-features` (v2)
@@ -33,19 +33,22 @@ Behavior:
   | PROGRESS line (internal) | Timeline bubble (noob) |
   |---|---|
   | `--- Round N/M ---` | divider `Round N of M` |
-  | `Sending to X...` | `🔵 X — thinking…` |
-  | `Sending to X (adversary)...` | `⚔️ X — attacking the other answer…` |
-  | `X answered (N chars)` | bubble switches to done: `X answered` |
-  | `Compressing round N...` | `📝 Referee — summarizing the debate…` |
-  | `Asking X if models agree...` | `🤝 Checking if they agree…` |
-  | `Requesting final framework from X...` | `⚖️ Judge X — writing the final framework…` |
+  | `Sending to X...` | `[chat SVG icon] X — thinking…` |
+  | `Sending to X (adversary)...` | `[bolt SVG icon] X — attacking the other answer…` |
+  | `X answered (N chars)` | bubble icon switches to the check SVG, text `X answered` |
+  | `Compressing round N...` | `[document SVG icon] Referee — summarizing the debate…` |
+  | `Asking X if models agree...` | `[check-circle SVG icon] Checking if they agree…` |
+  | `Requesting final framework from X...` | `[scales SVG icon] Judge X — writing the final framework…` |
   | `Done. framework.md saved...` | result card |
   | `FAILED: ...` | red card with plain-language cause + actions |
+
+  All timeline icons are inline stroke-based SVGs (no emoji) — the
+  implementation later replaced this table's original emoji placeholders.
 
 - Bubbles append bottom-up in a scrollable area; the newest is always
   scrolled into view. Unknown PROGRESS lines render as neutral
   `working…` bubbles (never raw text).
-- **Result card**: green `✅ Done` + first 200 chars of the verdict +
+- **Result card**: green check-SVG `Done` + first 200 chars of the verdict +
   button `Open framework.md` (uses `chrome.downloads.show` on the saved
   download id; the local engine already saves via the Downloads API).
 - **Error translation**: DOM/extraction failures render as

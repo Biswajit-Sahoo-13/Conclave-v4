@@ -8,7 +8,7 @@ const TOOLS = [
     name: 'ask_council',
     description: 'Start a multi-model AI debate in the user\'s Chrome chat tabs ' +
       '(Qwen/GLM/Gemini/...). Returns immediately with a session_id — poll ' +
-      'get_session until status is done/failed. Requires the AI Council ' +
+      'get_session until status is done/failed. Requires the Conclave ' +
       'extension to be armed in Chrome.',
     inputSchema: {
       type: 'object',
@@ -76,7 +76,7 @@ async function handleMcp(msg, ctx) {
       result: {
         protocolVersion: '2024-11-05',
         capabilities: { tools: {} },
-        serverInfo: { name: 'ai-council', version: '1.0.0' }
+        serverInfo: { name: 'conclave', version: '1.0.0' }
       }
     };
   }

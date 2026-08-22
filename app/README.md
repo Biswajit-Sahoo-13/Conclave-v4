@@ -1,4 +1,4 @@
-# AI Council App (v4 — all-in-one Electron)
+# Conclave App (v4 — all-in-one Electron)
 
 One installed Windows app: your AI chats inside it, the council engine and
 SQLite Brain built in, optional MCP server for Antigravity. No Chrome
@@ -21,7 +21,7 @@ sessions persist (`persist:council` partition).
 npm run dist
 ```
 
-Output: `dist/AI Council Setup.exe` (NSIS, one-click install, Start Menu
+Output: `dist/Conclave Setup.exe` (NSIS, one-click install, Start Menu
 shortcut).
 
 ## Using it

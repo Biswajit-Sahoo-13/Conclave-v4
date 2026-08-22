@@ -94,7 +94,7 @@ test('e2e: MCP ask_council through the full loop', async (t) => {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
   });
-  assert.strictEqual(init.result.serverInfo.name, 'ai-council');
+  assert.strictEqual(init.result.serverInfo.name, 'conclave');
   const tools = await j(`http://127.0.0.1:${inst.port}/mcp`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })

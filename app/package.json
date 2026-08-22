@@ -1,6 +1,6 @@
 {
-  "name": "ai-council-app",
-  "productName": "AI Council",
+  "name": "conclave-app",
+  "productName": "Conclave",
   "version": "4.0.0",
   "description": "All-in-one multi-model debate chamber — your AI chats in one app with a judged council.",
   "main": "main.js",
@@ -15,8 +15,8 @@
     "electron-builder": "^25.0.0"
   },
   "build": {
-    "appId": "com.biswajit.aicouncil",
-    "productName": "AI Council",
+    "appId": "com.biswajit.conclave",
+    "productName": "Conclave",
     "win": { "target": "nsis" },
     "nsis": {
       "oneClick": true,

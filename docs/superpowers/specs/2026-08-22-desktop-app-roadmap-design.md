@@ -1,4 +1,4 @@
-# AI Council — Desktop App Roadmap: v3 (portable daemon.exe) + v4 (Electron all-in-one)
+# Conclave — Desktop App Roadmap: v3 (portable daemon.exe) + v4 (Electron all-in-one)
 
 - Date: 2026-08-22
 - Status: approved by user
@@ -49,7 +49,7 @@ Goal: one installed Windows app; no Chrome, no extension, no daemon exe.
   content-script logic ported to an injected string).
 - SQLite: prefer built-in `node:sqlite` if the Electron Node supports
   it, else `better-sqlite3` adapter with the same Brain schema.
-- Packaging: electron-builder NSIS → `AI Council Setup.exe`
+- Packaging: electron-builder NSIS → `Conclave Setup.exe`
   (~70 MB): Program Files, Start Menu shortcut.
 
 Risks (accepted): npm download size; `node:sqlite` availability in

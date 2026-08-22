@@ -1,4 +1,4 @@
-# AI Council v1 "Complex" — Extension + Daemon
+# Conclave v1 "Complex" — Extension + Daemon
 
 Two parts, two branches:
 
@@ -24,7 +24,7 @@ Two parts, two branches:
 ## Quick start (noob path)
 
 1. Load the extension (below), open `chat.qwen.ai` and `chat.z.ai`, log in.
-2. Click the AI Council icon — the checklist auto-checks as tabs appear.
+2. Click the Conclave icon — the checklist auto-checks as tabs appear.
 3. Paste your idea → **START THE DEBATE** → watch the timeline → open
    `framework.md` from the green result card.
 

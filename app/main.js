@@ -1,5 +1,5 @@
 'use strict';
-// AI Council app — main process.
+// Conclave app — main process.
 // Owns: the window + chat webviews, the SQLite Brain, the debate engine,
 // the optional MCP/HTTP server, and the IPC bridge to the renderer panel.
 
@@ -129,7 +129,7 @@ function activeProject() {
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1280, height: 840,
-    title: 'AI Council',
+    title: 'Conclave',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
