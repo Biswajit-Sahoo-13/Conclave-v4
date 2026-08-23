@@ -1,95 +1,64 @@
-# Conclave v1 "Complex" — Extension + Daemon
+# Conclave v4 — All-in-One Electron App
 
-Two parts, two branches:
+Everything in one installed Windows app: your AI chats live INSIDE the app
+(sidebar tabs for Qwen / GLM / Gemini / ChatGPT / Claude — log in once and
+sessions persist), the debate engine and SQLite Project Brain are built in,
+and Antigravity can trigger debates over MCP. No Chrome extension, no
+separate daemon, no Node install for daily use.
 
-- **`main`** — v0.2: standalone Chrome extension (local engine, manual mode).
-  Works with zero setup.
-- **`v1-complex-high-features`** (this branch) — v1.1: Simple/Advanced UI on
-  top of the local **council daemon** (Node.js, zero npm dependencies) with a
-  real SQLite **Project Brain**, **adaptive routing**, **multi-judge
-  ensembles**, and an **MCP server** for Antigravity.
+The Chrome extension from v2/v3 is still included and works standalone.
 
-## The two UI modes (v1.1)
+## Prerequisites
 
-- **Simple (default)** — paste your idea, press *Start the debate*, watch a
-  live timeline (thinking / attacking / refereeing / judging) with inline SVG
-  icons. Roles auto-assign from your open tabs; quality defaults are locked
-  (3 rounds, adversary on, referee digest on). Zero setup, no daemon needed.
-  First run shows a guided checklist that auto-checks as you open the chat
-  sites. Errors come with *Try again* / *Use Manual mode* actions.
-- **Advanced** — the full v1.0 surface: role matrix, rounds, early-stop,
-  adversary, digest, Auto/Manual/Resolve, and the Daemon panel (project,
-  routing + judge modes, session history, feedback, arm toggle).
+- Windows 10/11
+- For daily use: nothing else — install and run
+- For development/building: Node.js 22.5+ and one-time npm install (the
+  only place in Conclave with npm dependencies: electron + electron-builder)
+- Free logged-in accounts at chat.qwen.ai and chat.z.ai inside the app
 
-## Quick start (noob path)
+## Run the app (development)
 
-1. Load the extension (below), open `chat.qwen.ai` and `chat.z.ai`, log in.
-2. Click the Conclave icon — the checklist auto-checks as tabs appear.
-3. Paste your idea → **START THE DEBATE** → watch the timeline → open
-   `framework.md` from the green result card.
+    cd app
+    npm install
+    npm start
 
-## Quick start (daemon, Advanced)
+First run: click Qwen and GLM in the sidebar and log in once (green dot =
+loaded). Roles pre-assign automatically (first two sites debate, second
+also judges — change in Advanced).
 
-1. Start the daemon: double-click `daemon/start-conclave.bat`
-   (or `node daemon/server.js`). It listens on `http://127.0.0.1:8765`
-   and stores the Brain in `%USERPROFILE%\.ai-council\council.db`.
-2. Switch the popup to **Advanced**, pick debaters + judge.
-3. In the **Daemon** panel: set a project name and (optionally) a project
-   folder — verdicts get written there as `framework.md` / `resolution.md`.
-   Choose routing mode and judge mode, then check **Arm daemon mode**.
-4. Now debates can be triggered two ways:
-   - From Antigravity via MCP (see below) — fully automatic loop.
-   - `curl -X POST http://127.0.0.1:8765/api/debate -d '{"question":"..."}'`
+## Build the installer
+
+    cd app
+    npm run dist        ->  dist/Conclave Setup 4.0.0.exe (NSIS installer)
+
+## Using it
+
+1. Paste your idea (Simple mode) and press START THE DEBATE — watch the
+   live timeline; the verdict is stored in the Brain and written as
+   framework.md if a project folder is set (Advanced).
+2. Advanced: routing mode, judge mode, rounds, project, session history
+   with accept/reject feedback (trains weighted judges).
+3. MCP button (sidebar bottom): serves http://127.0.0.1:8765/mcp for
+   Antigravity.
 
 ## MCP tools (for Antigravity)
 
-HTTP endpoint: `http://127.0.0.1:8765/mcp` (streamable HTTP, JSON-RPC 2.0).
-stdio clients: use `daemon/stdio-bridge.js` as the MCP command.
-
-| tool | what it does |
+| Tool | Behavior |
 |---|---|
-| `ask_council(question, context?, kind?)` | runs the full debate in your Chrome tabs, returns the verdict, stores everything |
-| `get_project_state()` | decisions (with reasons/rejected alternatives), open questions, recent verdicts |
-| `record_issue(title, error, context?, debate?)` | logs an Antigravity error; `debate: true` resolves it via a council debate |
-| `submit_feedback(session_id, accepted)` | trains judge reliability weights (weighted-panel mode) |
-
-Example Antigravity config (streamable HTTP):
-```json
-{ "mcpServers": { "conclave": { "url": "http://127.0.0.1:8765/mcp" } } }
-```
-Or stdio:
-```json
-{ "mcpServers": { "conclave": {
-    "command": "node",
-    "args": ["C:/path/to/ai-debate-extension/daemon/stdio-bridge.js"] } } }
-```
-
-## Engine (daemon)
-
-- **Routing modes** — `conservative` (full rounds, rotating adversary only),
-  `balanced` (default: unanimous + avg confidence ≥ 75% skips remaining
-  rounds; only disagreeing/low-confidence models are re-asked; adversary
-  targets the outlier), `aggressive` (balanced + up to 2 extra rounds with
-  a fresh attack angle while avg confidence < 60%).
-- **Judge modes** — `single`, `synthesis` (2 judges + chief meta-merge that
-  must list judge-vs-judge disagreements), `panel` (all judges vote,
-  majority per point), `weighted` (votes weighted by your accept/reject
-  feedback; "untrained" note until 10 rated verdicts).
-- Every message, decision, open question and issue is stored in SQLite;
-  verdict sections are parsed into durable `decisions` and `open_questions`.
+| ask_council(question, context?, kind?) | Async job — returns session_id immediately; poll with get_session |
+| get_session(session_id) | Poll a debate: running / done (+ verdict) / failed |
+| get_project_state() | Decisions, open questions, recent verdicts |
+| record_issue(title, error, context?, debate?) | Log an Antigravity error; debate:true resolves it via a council |
+| submit_feedback(session_id, accepted) | Trains judge weights |
 
 ## Tests
 
-```
-node --test daemon/test/engine.test.js daemon/test/brain.test.js daemon/test/e2e.test.js
-```
-31 tests: parsing edge cases, routing behavior, judge ensembles,
-Brain repositories, and a full-loop e2e with a fake browser (no Chrome).
+    node --test daemon/test/engine.test.js daemon/test/brain.test.js daemon/test/e2e.test.js
 
-## Fallback behavior
+34 tests (the engine is shared between the daemon and app/engine copies —
+keep them in sync; app/README.md documents the copy commands).
 
-- Daemon off → popup shows "offline", local v0.2 modes still work.
-- Chrome/extension not armed → MCP `ask_council` returns a clear error.
-- One judge fails → synthesis degrades to single (noted in the verdict).
+## Design
 
-Design spec: `docs/superpowers/specs/2026-08-21-complex-version-design.md`
+"Council Chamber": dark-mode-native default + light toggle, single indigo
+accent, monospace as the machine voice, inline SVG icons only.
