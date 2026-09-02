@@ -103,7 +103,7 @@ async function runSession(brain, callModel, cfg) {
     if (!chief) throw new Error('no judge in roster');
 
     const answers = {}; // tabId -> { text, confidence }
-    const planned = cfg.maxRounds || 3;
+    const planned = Number.isFinite(cfg.maxRounds) && cfg.maxRounds >= 1 ? cfg.maxRounds : 3;
     const totalCap = planned + (cfg.routingMode === 'aggressive' ? THRESHOLDS.EXTRA_ROUNDS : 0);
 
     let roundsUsed = 0;
@@ -230,10 +230,14 @@ async function judgeEnsemble(mode, judges, chief, brain, userIdeaBlock, transcri
   }
 
   if (mode === 'synthesis') {
-    const [v1, v2] = await Promise.all([verdictOf(judges[0]), verdictOf(judges[1])]);
+    // Sequential, not Promise.all: the real transports settle one model call
+    // at a time (AgentHub holds a single in-flight slot), so a concurrent
+    // second judge call is rejected with "another model call is in flight".
+    const va = await verdictOf(judges[0]);
+    const vb = await verdictOf(judges[1]);
     return mergeWith(P.META_PROMPT +
-      `===== VERDICT A — ${judges[0].name} =====\n${v1}\n\n` +
-      `===== VERDICT B — ${judges[1].name} =====\n${v2}\n`);
+      `===== VERDICT A — ${judges[0].name} =====\n${va}\n\n` +
+      `===== VERDICT B — ${judges[1].name} =====\n${vb}\n`);
   }
 
   // panel / weighted: every judge verdicts, chief merges

@@ -265,3 +265,38 @@ test('model call retries once before failing', async () => {
   // session aborts once the FIRST model exhausts its retry
   assert.strictEqual(attempts, 2);
 });
+
+// ---------- transport constraints (regression: audit round 4) ----------
+
+test('synthesis works over a single-flight transport (AgentHub semantics)', async () => {
+  const brain = new Brain(':memory:');
+  brain.upsertProject('p', null);
+  let inFlight = 0, concurrent = 0;
+  const callModel = async (role, entry) => {
+    if (++inFlight > 1) { concurrent++; throw new Error('another model call is in flight'); }
+    try {
+      await new Promise(r => setTimeout(r, 5));
+      if (role === 'judge') return `## VERDICT\nfrom ${entry.name}`;
+      if (role === 'meta') return '## VERDICT\nmerged';
+      if (role === 'referee') return 'Qwen: AGREE\nGLM: AGREE';
+      if (role === 'digest') return 'ESTABLISHED: none';
+      return 'Answer. CONFIDENCE: 90%';
+    } finally { inFlight--; }
+  };
+  const r = await runSession(brain, callModel, baseCfg());
+  assert.strictEqual(concurrent, 0, 'engine must never overlap model calls on a single-flight transport');
+  assert.ok(r.verdict.includes('merged'));
+  assert.strictEqual(brain.getSession(r.sessionId).status, 'done');
+});
+
+test('non-numeric maxRounds falls back to 3 planned rounds', async () => {
+  const brain = new Brain(':memory:');
+  brain.upsertProject('p', null);
+  const fb = createFakeBrowser((role) => {
+    if (role === 'referee') return 'Qwen: AGREE\nGLM: AGREE';
+    if (role === 'meta') return '## VERDICT\nv';
+    return 'Answer. CONFIDENCE: 90%';
+  });
+  const r = await runSession(brain, fb.callModel, baseCfg({ routingMode: 'conservative', maxRounds: NaN }));
+  assert.strictEqual(r.roundsUsed, 3, 'NaN must not collapse the round loop to zero');
+});

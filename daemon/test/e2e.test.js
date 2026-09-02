@@ -212,3 +212,21 @@ test('e2e: record_issue with debate resolves the issue', async (t) => {
   });
   assert.ok(res.result.content[0].text.includes('resolved by session'));
 });
+
+test('e2e: GET /api/prefs reads back what was saved (popup hydration)', async (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'e2e-'));
+  const inst = await startServer({ dbPath: path.join(dir, 'council.db') });
+  t.after(() => inst.close());
+  const base = `http://127.0.0.1:${inst.port}`;
+
+  let prefs = (await j(`${base}/api/prefs`)).prefs;
+  assert.strictEqual(prefs.routingMode, 'balanced'); // defaults before any save
+  assert.strictEqual(prefs.judgeMode, 'synthesis');
+
+  await j(`${base}/api/prefs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ routingMode: 'aggressive' })
+  });
+  prefs = (await j(`${base}/api/prefs`)).prefs;
+  assert.strictEqual(prefs.routingMode, 'aggressive', 'a saved pref must survive a read-back');
+});

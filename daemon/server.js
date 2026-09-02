@@ -217,6 +217,16 @@ function startServer({ port = 0, dbPath } = {}) {
         });
       }
 
+      // Current prefs, so the popup can hydrate its controls instead of
+      // blindly pushing stale HTML defaults over the daemon's real settings.
+      if (req.method === 'GET' && url.pathname === '/api/prefs') {
+        return json(res, 200, { ok: true, prefs: {
+          routingMode: brain.getSetting('routing_mode') || 'balanced',
+          judgeMode: brain.getSetting('judge_mode') || 'synthesis',
+          maxRounds: brain.getSetting('max_rounds') || '3'
+        } });
+      }
+
       if (req.method === 'POST' && url.pathname === '/agent/poll') {
         const body = await readBody(req);
         if (Array.isArray(body.roster)) hub.setRoster(body.roster);
@@ -234,6 +244,7 @@ function startServer({ port = 0, dbPath } = {}) {
       if (req.method === 'POST' && url.pathname === '/mcp') {
         const body = await readBody(req);
         const rpc = await handleMcp(body, { brain, askCouncil, startDebateJob, activeProject, hub });
+        if (rpc === null) { res.writeHead(202); return res.end(); } // notification
         return json(res, 200, rpc);
       }
 
@@ -290,7 +301,10 @@ function startServer({ port = 0, dbPath } = {}) {
     }
   });
 
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
+    // surface listen failures (e.g. EADDRINUSE) through the promise instead
+    // of leaking an unhandled 'error' event and a raw stack
+    server.on('error', reject);
     server.listen(port, '127.0.0.1', () => {
       boundPort = server.address().port;
       resolve({
@@ -307,5 +321,10 @@ if (require.main === module) {
   startServer({ port: 8765 }).then(({ port }) => {
     console.log(`Conclave daemon listening on http://127.0.0.1:${port}`);
     console.log(`MCP endpoint: http://127.0.0.1:${port}/mcp   Brain: ~/.ai-council/council.db`);
-  }).catch(e => { console.error(e); process.exit(1); });
+  }).catch(e => {
+    console.error(/EADDRINUSE/.test(String(e && e.code || e))
+      ? 'Conclave daemon: port 8765 is busy — is another daemon already running? Close it first.'
+      : e);
+    process.exit(1);
+  });
 }

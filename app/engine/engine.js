@@ -103,7 +103,7 @@ async function runSession(brain, callModel, cfg) {
     if (!chief) throw new Error('no judge in roster');
 
     const answers = {}; // tabId -> { text, confidence }
-    const planned = cfg.maxRounds || 3;
+    const planned = Number.isFinite(cfg.maxRounds) && cfg.maxRounds >= 1 ? cfg.maxRounds : 3;
     const totalCap = planned + (cfg.routingMode === 'aggressive' ? THRESHOLDS.EXTRA_ROUNDS : 0);
 
     let roundsUsed = 0;

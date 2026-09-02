@@ -68,6 +68,7 @@ function startServer({ port = 8765, brain, hub, askCouncil, startDebateJob }) {
       if (req.method === 'POST' && url.pathname === '/mcp') {
         const body = await readBody(req);
         const rpc = await handleMcp(body, { brain, askCouncil, startDebateJob, activeProject, hub });
+        if (rpc === null) { res.writeHead(202); return res.end(); } // notification
         return json(res, 200, rpc);
       }
       if (req.method === 'POST' && url.pathname === '/api/project') {

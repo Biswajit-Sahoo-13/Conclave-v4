@@ -572,9 +572,20 @@ $("armDaemon").addEventListener("change", async (e) => {
   }
   chrome.runtime.sendMessage(
     { type: "SET_DAEMON", armed: e.target.checked, roster },
-    () => { if (e.target.checked) { savePrefs(); loadSessions(); } }
+    () => { if (e.target.checked) { hydratePrefs(); loadSessions(); } }
   );
 });
+
+// Hydrate the daemon-pref controls from the daemon's actual settings —
+// they are write-only otherwise, and arming would push stale HTML defaults
+// over whatever the daemon really has.
+async function hydratePrefs() {
+  try {
+    const r = await (await daemonFetch("/api/prefs")).json();
+    if (r.prefs.routingMode) $("daemonRouting").value = r.prefs.routingMode;
+    if (r.prefs.judgeMode) $("daemonJudges").value = r.prefs.judgeMode;
+  } catch (_) { /* daemon offline — leave current values */ }
+}
 
 async function savePrefs() {
   try {
@@ -648,6 +659,7 @@ async function loadSessions() {
   await scanTabs();
   loadSettings();
   checkDaemon();
+  hydratePrefs();
   loadSessions();
   // live checklist: re-scan while the popup is open
   setInterval(scanTabs, 3000);
